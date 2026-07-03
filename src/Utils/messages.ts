@@ -802,6 +802,10 @@ export const generateWAMessageContent = async (
 		m = await prepareWAMessageMedia(message, options)
 	}
 
+	if (hasOptionalProperty(message, 'isLottie') && !!message.isLottie) {
+		m = { lottieStickerMessage: { message: m } }
+	}
+
 	if (hasOptionalProperty(message, 'viewOnce') && !!message.viewOnce) {
 		m = { viewOnceMessage: { message: m } }
 	}
@@ -1003,7 +1007,8 @@ export const normalizeMessageContent = (content: WAMessageContent | null | undef
 			message?.editedMessage ||
 			message?.associatedChildMessage ||
 			message?.groupStatusMessage ||
-			message?.groupStatusMessageV2
+			message?.groupStatusMessageV2 ||
+			message?.lottieStickerMessage
 		)
 	}
 }
