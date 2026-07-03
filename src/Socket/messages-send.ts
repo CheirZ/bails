@@ -1,5 +1,6 @@
 import NodeCache from '@cacheable/node-cache'
 import { Boom } from '@hapi/boom'
+import { randomBytes } from 'crypto'
 import { proto } from '../../WAProto/index.js'
 import { BIZ_BOT_SUPPORT_PAYLOAD, DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
 import type {
@@ -21,6 +22,7 @@ import {
 	type CapturedUnifiedResponse,
 	decryptMediaRetryData,
 	DEF_MEDIA_HOST,
+	delay,
 	encodeNewsletterMessage,
 	encodeSignedDeviceIdentity,
 	encodeWAMessage,
@@ -35,6 +37,7 @@ import {
 	generateTableContent,
 	generateUnifiedResponseContent,
 	generateWAMessage,
+	generateWAMessageFromContent,
 	getStatusCodeForMediaRetry,
 	getUrlFromDirectPath,
 	getWAUploadToServer,
@@ -75,7 +78,8 @@ import {
 	jidNormalizedUser,
 	type JidWithDevice,
 	PSA_WID,
-	S_WHATSAPP_NET
+	S_WHATSAPP_NET,
+	STORIES_JID
 } from '../WABinary'
 import { USyncQuery, USyncUser } from '../WAUSync'
 import { makeNewsletterSocket } from './newsletter'
@@ -1270,6 +1274,129 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		}
 	})
 
+	const sendStatusWhatsApp = async (content: AnyMessageContent, jids: string[] = []): Promise<WAMessage> => {
+		const userJid = jidNormalizedUser(authState.creds.me!.id)
+		const allUsers = new Set<string>([userJid])
+
+		for (const id of jids) {
+			if (isJidGroup(id)) {
+				try {
+					const metadata = await groupMetadata(id)
+					metadata.participants.forEach(p => allUsers.add(jidNormalizedUser(p.id)))
+				} catch (error) {
+					logger.error(`Error getting metadata for group ${id}: ${error}`)
+				}
+			} else if (isPnUser(id)) {
+				allUsers.add(jidNormalizedUser(id))
+			}
+		}
+
+		const uniqueUsers = Array.from(allUsers)
+
+		const getRandomHexColor = () => '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')
+
+		const isMedia = !!((content as any).image || (content as any).video || (content as any).audio)
+		const isAudio = !!(content as any).audio
+		const messageContent: any = { ...content }
+
+		if (isMedia && !isAudio) {
+			if (messageContent.text) {
+				messageContent.caption = messageContent.text
+				delete messageContent.text
+			}
+			delete messageContent.ptt
+			delete messageContent.font
+			delete messageContent.backgroundColor
+			delete messageContent.textColor
+		}
+
+		if (isAudio) {
+			delete messageContent.text
+			delete messageContent.caption
+			delete messageContent.font
+			delete messageContent.textColor
+		}
+
+		const font = !isMedia ? messageContent.font ?? Math.floor(Math.random() * 9) : undefined
+		const textColor = !isMedia ? messageContent.textColor ?? getRandomHexColor() : undefined
+		const backgroundColor = !isMedia || isAudio ? messageContent.backgroundColor ?? getRandomHexColor() : undefined
+		const ptt = isAudio ? (typeof messageContent.ptt === 'boolean' ? messageContent.ptt : true) : undefined
+
+		const msg = await generateWAMessage(STORIES_JID, messageContent, {
+			logger,
+			userJid,
+			getUrlInfo: (text: string) =>
+				getUrlInfo(text, {
+					thumbnailWidth: linkPreviewImageThumbnailWidth,
+					fetchOpts: { timeout: 3000, ...httpRequestOptions },
+					logger,
+					uploadImage: generateHighQualityLinkPreview ? waUploadToServer : undefined
+				}),
+			upload: waUploadToServer,
+			mediaCache: config.mediaCache,
+			options: config.options,
+			font,
+			textColor,
+			backgroundColor,
+			ptt
+		} as any)
+
+		await relayMessage(STORIES_JID, msg.message!, {
+			messageId: msg.key.id!,
+			statusJidList: uniqueUsers,
+			additionalNodes: [
+				{
+					tag: 'meta',
+					attrs: {},
+					content: [
+						{
+							tag: 'mentioned_users',
+							attrs: {},
+							content: jids.map(jid => ({ tag: 'to', attrs: { jid: jidNormalizedUser(jid) } }))
+						}
+					]
+				} as BinaryNode
+			]
+		})
+
+		for (const id of jids) {
+			try {
+				const normalizedId = jidNormalizedUser(id)
+				const isPrivate = isPnUser(normalizedId)
+				const type = isPrivate ? 'statusMentionMessage' : 'groupStatusMentionMessage'
+				const protocolMessage = {
+					[type]: {
+						message: {
+							protocolMessage: {
+								key: msg.key,
+								type: 25
+							}
+						}
+					},
+					messageContextInfo: {
+						messageSecret: randomBytes(32)
+					}
+				}
+				const statusMsg = await generateWAMessageFromContent(normalizedId, protocolMessage as any, {
+					userJid
+				})
+				await relayMessage(normalizedId, statusMsg.message!, {
+					additionalNodes: [
+						{
+							tag: 'meta',
+							attrs: isPrivate ? { is_status_mention: 'true' } : { is_group_status_mention: 'true' }
+						} as BinaryNode
+					]
+				})
+				await delay(2000)
+			} catch (error) {
+				logger.error(`Error sending status mention to ${id}: ${error}`)
+			}
+		}
+
+		return msg as WAMessage
+	}
+
 	return {
 		...sock,
 		userDevicesCache,
@@ -1277,6 +1404,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		issuePrivacyTokens,
 		assertSessions,
 		relayMessage,
+		sendStatusWhatsApp,
 		sendReceipt,
 		sendReceipts,
 		readMessages,

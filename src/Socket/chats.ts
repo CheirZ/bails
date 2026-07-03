@@ -25,7 +25,7 @@ import type {
 	WAPrivacyValue,
 	WAReadReceiptsValue
 } from '../Types'
-import { ALL_WA_PATCH_NAMES } from '../Types'
+import { ALL_WA_PATCH_NAMES, WAMessageStubType } from '../Types'
 import type { QuickReplyAction } from '../Types/Bussines.js'
 import type { LabelActionBody } from '../Types/Label'
 import { SyncState } from '../Types/State'
@@ -1244,7 +1244,41 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		await Promise.all([fetchProps(), fetchBlocklist(), fetchPrivacySettings()])
 	}
 
+	const isWASystemNotification = (msg: WAMessage): boolean => {
+		const content = msg?.message
+		if (!content) return false
+
+		const protoType = content.protocolMessage?.type
+		if (
+			protoType === proto.Message.ProtocolMessage.Type.HISTORY_SYNC_NOTIFICATION ||
+			protoType === proto.Message.ProtocolMessage.Type.APP_STATE_SYNC_KEY_SHARE ||
+			protoType === proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE ||
+			protoType === proto.Message.ProtocolMessage.Type.LID_MIGRATION_MAPPING_SYNC
+		) {
+			return true
+		}
+
+		if (msg.messageStubType && !content.conversation && !content.extendedTextMessage) {
+			const stub = msg.messageStubType
+			const SYSTEM_STUB_TYPES = new Set([
+				WAMessageStubType.E2E_DEVICE_CHANGED,
+				WAMessageStubType.E2E_ENCRYPTED,
+				WAMessageStubType.E2E_IDENTITY_CHANGED,
+				WAMessageStubType.CIPHERTEXT,
+				WAMessageStubType.BIZ_PRIVACY_MODE_TO_BSP,
+				WAMessageStubType.BIZ_PRIVACY_MODE_TO_FB
+			])
+			if (SYSTEM_STUB_TYPES.has(stub)) return true
+		}
+
+		return false
+	}
+
 	const upsertMessage = ev.createBufferedFunction(async (msg: WAMessage, type: MessageUpsertType) => {
+		if (isWASystemNotification(msg)) {
+			msg.isSystemNotification = true
+		}
+
 		ev.emit('messages.upsert', { messages: [msg], type })
 
 		if (!!msg.pushName) {
