@@ -1,7 +1,7 @@
 import NodeCache from '@cacheable/node-cache'
 import { Boom } from '@hapi/boom'
 import { proto } from '../../WAProto/index.js'
-import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
+import { BIZ_BOT_SUPPORT_PAYLOAD, DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
 import type {
 	AnyMessageContent,
 	MediaConnInfo,
@@ -1435,6 +1435,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				const isEditMsg = 'edit' in content && !!content.edit
 				const isPinMsg = 'pin' in content && !!content.pin
 				const isPollMessage = 'poll' in content && !!content.poll
+				const isAiMsg = 'ai' in content && !!content.ai
 				const additionalAttributes: BinaryNodeAttributes = {}
 				const additionalNodes: BinaryNode[] = []
 				// required for delete
@@ -1463,6 +1464,26 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 							event_type: 'creation'
 						}
 					} as BinaryNode)
+				} else if (isAiMsg) {
+					if (!(isPnUser(jid) || isLidUser(jid))) {
+						throw new Boom('AI icon on message are only allowed in private chat', { statusCode: 400 })
+					}
+
+					if (fullMsg.message) {
+						fullMsg.message.messageContextInfo = {
+							...(fullMsg.message.messageContextInfo || {}),
+							supportPayload: BIZ_BOT_SUPPORT_PAYLOAD
+						}
+					}
+
+					additionalNodes.push({
+						tag: 'bot',
+						attrs: {
+							biz_bot: '1'
+						}
+					} as BinaryNode)
+
+					delete (content as { ai?: boolean }).ai
 				}
 
 				await relayMessage(jid, fullMsg.message!, {
