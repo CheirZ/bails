@@ -150,6 +150,16 @@ export const INITIAL_PREKEY_COUNT = 812
 
 export const UPLOAD_TIMEOUT = 30000 // 30 seconds
 
+export const BIZ_BOT_SUPPORT_PAYLOAD = JSON.stringify({
+	version: 1,
+	is_ai_message: true,
+	should_upload_client_logs: false,
+	should_show_system_message: false,
+	ticket_id: '7004947587700716',
+	citation_items: [],
+	ticket_locale: 'us'
+})
+
 export const TimeMs = {
 	Minute: 60 * 1000,
 	Hour: 60 * 60 * 1000,
