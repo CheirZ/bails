@@ -203,6 +203,8 @@ export type AnyMediaMessageContent = (
 	| ({
 			sticker: WAMediaUpload
 			isAnimated?: boolean
+			/** if set to true, will wrap the sticker in a lottieStickerMessage */
+			isLottie?: boolean
 	  } & WithDimensions)
 	| ({
 			document: WAMediaUpload
@@ -423,3 +425,4 @@ export type MediaDecryptionKeyInfo = {
 }
 
 export type MinimalMessage = Pick<WAMessage, 'key' | 'messageTimestamp'>
+	
