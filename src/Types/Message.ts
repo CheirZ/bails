@@ -126,6 +126,10 @@ type ViewOnce = {
 	viewOnce?: boolean
 }
 
+type AiLabelable = {
+	ai?: boolean
+}
+
 type Editable = {
 	edit?: WAMessageKey
 }
@@ -284,7 +288,8 @@ export type AnyRegularMessageContent = (
 	| SharePhoneNumber
 	| RequestPhoneNumber
 ) &
-	ViewOnce
+	ViewOnce &
+	AiLabelable
 
 export type WAStickerPackSticker = {
 	sticker: WAMediaUpload
