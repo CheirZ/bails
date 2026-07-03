@@ -801,12 +801,16 @@ export const generateWAMessageContent = async (
 	} else {
 		m = await prepareWAMessageMedia(message, options)
 	}
-
+	
 	if (hasOptionalProperty(message, 'isLottie') && !!message.isLottie) {
 		m = { lottieStickerMessage: { message: m } }
 	}
 
-	if (hasOptionalProperty(message, 'viewOnce') && !!message.viewOnce) {
+	if (hasOptionalProperty(message, 'viewOnceV2Extension') && !!message.viewOnceV2Extension) {
+		m = { viewOnceMessageV2Extension: { message: m } }
+	} else if (hasOptionalProperty(message, 'viewOnceV2') && !!message.viewOnceV2) {
+		m = { viewOnceMessageV2: { message: m } }
+	} else if (hasOptionalProperty(message, 'viewOnce') && !!message.viewOnce) {
 		m = { viewOnceMessage: { message: m } }
 	}
 

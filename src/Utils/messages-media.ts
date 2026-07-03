@@ -1,5 +1,5 @@
 import { Boom } from '@hapi/boom'
-import { exec } from 'child_process'
+import { spawn } from 'child_process'
 import * as Crypto from 'crypto'
 import { once } from 'events'
 import { createReadStream, createWriteStream, promises as fs, WriteStream } from 'fs'
@@ -33,10 +33,19 @@ const getTmpFilesDirectory = () => tmpdir()
 
 const getImageProcessingLibrary = async () => {
 	//@ts-ignore
-	const [jimp, sharp] = await Promise.all([import('jimp').catch(() => {}), import('sharp').catch(() => {})])
+	const [jimp, sharp, napi] = await Promise.all([
+		import('jimp').catch(() => {}),
+		import('sharp').catch(() => {}),
+		//@ts-ignore
+		import('@napi-rs/image').catch(() => {})
+	])
 
 	if (sharp) {
 		return { sharp }
+	}
+
+	if (napi) {
+		return { napi }
 	}
 
 	if (jimp) {
@@ -122,12 +131,33 @@ const extractVideoThumb = async (
 	size: { width: number; height: number }
 ) =>
 	new Promise<void>((resolve, reject) => {
-		const cmd = `ffmpeg -ss ${time} -i ${path} -y -vf scale=${size.width}:-1 -vframes 1 -f image2 ${destPath}`
-		exec(cmd, err => {
-			if (err) {
-				reject(err)
-			} else {
+		const args = [
+			'-ss',
+			time,
+			'-i',
+			path,
+			'-y',
+			'-vf',
+			`scale=${size.width}:-1`,
+			'-vframes',
+			'1',
+			'-f',
+			'image2',
+			destPath
+		]
+		const child = spawn('ffmpeg', args)
+
+		let stderr = ''
+		child.stderr?.on('data', chunk => {
+			stderr += chunk
+		})
+
+		child.on('error', reject)
+		child.on('close', code => {
+			if (code === 0) {
 				resolve()
+			} else {
+				reject(new Boom(`ffmpeg exited with code ${code}`, { data: stderr }))
 			}
 		})
 	})
@@ -164,6 +194,19 @@ export const extractImageThumb = async (bufferOrFilePath: Readable | Buffer | st
 		return {
 			buffer,
 			original: dimensions
+		}
+	} else if ('napi' in lib && typeof lib.napi?.Transformer === 'function') {
+		const input =
+			typeof bufferOrFilePath === 'string' ? await fs.readFile(bufferOrFilePath) : bufferOrFilePath
+		const img = new lib.napi.Transformer(input)
+		const meta = await img.metadata()
+		const buffer = await img.resize(width).jpeg(50)
+		return {
+			buffer,
+			original: {
+				width: meta.width,
+				height: meta.height
+			}
 		}
 	} else {
 		throw new Boom('No image processing library available')
@@ -220,6 +263,16 @@ export const generateProfilePicture = async (
 		}
 
 		img = resized.getBuffer('image/jpeg', { quality: full ? 100 : 50 })
+	} else if ('napi' in lib && typeof lib.napi?.Transformer === 'function') {
+		const transformer = new lib.napi.Transformer(buffer)
+		const meta = await transformer.metadata()
+
+		if (full) {
+			img = transformer.resize(w, h).jpeg(100)
+		} else {
+			const min = Math.min(meta.width, meta.height)
+			img = transformer.crop(0, 0, min, min).resize(w, h).jpeg(50)
+		}
 	} else {
 		throw new Boom('No image processing library available')
 	}
