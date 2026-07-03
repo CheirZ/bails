@@ -124,6 +124,8 @@ type Contextable = {
 }
 type ViewOnce = {
 	viewOnce?: boolean
+	viewOnceV2?: boolean
+	viewOnceV2Extension?: boolean
 }
 
 type AiLabelable = {
@@ -203,8 +205,6 @@ export type AnyMediaMessageContent = (
 	| ({
 			sticker: WAMediaUpload
 			isAnimated?: boolean
-			/** if set to true, will wrap the sticker in a lottieStickerMessage */
-			isLottie?: boolean
 	  } & WithDimensions)
 	| ({
 			document: WAMediaUpload
