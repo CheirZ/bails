@@ -76,6 +76,8 @@ export const buildProfilePictureQueryContent = (
 	return [picture]
 }
 
+const USER_ID_CACHE = new Map<string, { phoneNumber: string; lid: string }>()
+
 export const makeChatsSocket = (config: SocketConfig) => {
 	const {
 		logger,
@@ -306,6 +308,45 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		if (result) {
 			return result.list
 		}
+	}
+
+	const findUserId = async (pnOrLid: string): Promise<{ phoneNumber: string; lid: string }> => {
+		const cached = USER_ID_CACHE.get(pnOrLid)
+		if (cached) {
+			return cached
+		}
+
+		const userId: { phoneNumber: string; lid: string } = { phoneNumber: '', lid: '' }
+
+		if (isPnUser(pnOrLid) || isHostedPnUser(pnOrLid)) {
+			userId.phoneNumber = pnOrLid
+			const lid = await signalRepository.lidMapping.getLIDForPN(pnOrLid)
+			if (!lid) {
+				userId.lid = 'id-not-found'
+				return userId
+			}
+
+			userId.lid = lid
+		} else if (isLidUser(pnOrLid) || isHostedLidUser(pnOrLid)) {
+			userId.lid = pnOrLid
+			const pn = await signalRepository.lidMapping.getPNForLID(pnOrLid)
+			if (!pn) {
+				userId.phoneNumber = 'id-not-found'
+				return userId
+			}
+
+			userId.phoneNumber = pn
+		} else {
+			throw new Boom('Invalid id input to find user ids', { statusCode: 400 })
+		}
+
+		userId.phoneNumber = jidNormalizedUser(userId.phoneNumber)
+		userId.lid = jidNormalizedUser(userId.lid)
+
+		USER_ID_CACHE.set(userId.phoneNumber, userId)
+		USER_ID_CACHE.set(userId.lid, userId)
+
+		return userId
 	}
 
 	/** update the profile picture for yourself or a group */
@@ -1500,6 +1541,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		fetchBlocklist,
 		fetchStatus,
 		fetchDisappearingDuration,
+		findUserId,
 		updateProfilePicture,
 		removeProfilePicture,
 		updateProfileStatus,
