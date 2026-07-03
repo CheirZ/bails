@@ -205,6 +205,7 @@ export type AnyMediaMessageContent = (
 	| ({
 			sticker: WAMediaUpload
 			isAnimated?: boolean
+		    isLottie?: boolean
 	  } & WithDimensions)
 	| ({
 			document: WAMediaUpload
