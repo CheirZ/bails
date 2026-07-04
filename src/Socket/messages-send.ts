@@ -112,6 +112,18 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 	const getLIDForPN = signalRepository.lidMapping.getLIDForPN.bind(signalRepository.lidMapping)
 
+	const knownContactJids = new Set<string>()
+	ev.on('contacts.upsert', newContacts => {
+		for (const c of newContacts) {
+			if (c?.id) knownContactJids.add(jidNormalizedUser(c.id))
+		}
+	})
+	ev.on('contacts.update', updates => {
+		for (const u of updates) {
+			if (u?.id) knownContactJids.add(jidNormalizedUser(u.id))
+		}
+	})
+
 	/**
 	 * Set of tctoken storage JIDs with a fire-and-forget `issuePrivacyTokens` IQ in flight.
 	 * Prevents duplicate IQs from rapid back-to-back sends before `senderTimestamp` persists.
@@ -1274,24 +1286,39 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		}
 	})
 
-	const sendStatusWhatsApp = async (content: AnyMessageContent, jids: string[] = []): Promise<WAMessage> => {
-		const userJid = jidNormalizedUser(authState.creds.me!.id)
-		const allUsers = new Set<string>([userJid])
-
-		for (const id of jids) {
+	const expandJids = async (ids: string[]): Promise<Set<string>> => {
+		const out = new Set<string>()
+		for (const id of ids) {
 			if (isJidGroup(id)) {
 				try {
 					const metadata = await groupMetadata(id)
-					metadata.participants.forEach(p => allUsers.add(jidNormalizedUser(p.id)))
+					metadata.participants.forEach(p => out.add(jidNormalizedUser(p.id)))
 				} catch (error) {
 					logger.error(`Error getting metadata for group ${id}: ${error}`)
 				}
 			} else if (isPnUser(id)) {
-				allUsers.add(jidNormalizedUser(id))
+				out.add(jidNormalizedUser(id))
 			}
 		}
+		return out
+	}
 
-		const uniqueUsers = Array.from(allUsers)
+	const sendStatusWhatsApp = async (
+		content: AnyMessageContent,
+		audienceJids?: string[],
+		mentionJids: string[] = []
+	): Promise<WAMessage> => {
+		const userJid = jidNormalizedUser(authState.creds.me!.id)
+
+		const resolvedAudience = audienceJids && audienceJids.length ? audienceJids : Array.from(knownContactJids)
+
+		const audienceSet = await expandJids(resolvedAudience)
+		const mentionSet = await expandJids(mentionJids)
+		audienceSet.add(userJid)
+		// anyone explicitly mentioned must also be able to see the status
+		mentionSet.forEach(id => audienceSet.add(id))
+
+		const statusJidList = Array.from(audienceSet)
 
 		const getRandomHexColor = () => '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')
 
@@ -1343,7 +1370,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 		await relayMessage(STORIES_JID, msg.message!, {
 			messageId: msg.key.id!,
-			statusJidList: uniqueUsers,
+			statusJidList,
 			additionalNodes: [
 				{
 					tag: 'meta',
@@ -1352,14 +1379,14 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 						{
 							tag: 'mentioned_users',
 							attrs: {},
-							content: jids.map(jid => ({ tag: 'to', attrs: { jid: jidNormalizedUser(jid) } }))
+							content: Array.from(mentionSet).map(jid => ({ tag: 'to', attrs: { jid } }))
 						}
 					]
 				} as BinaryNode
 			]
 		})
 
-		for (const normalizedId of uniqueUsers) {
+		for (const normalizedId of mentionSet) {
 			if (normalizedId === userJid) continue
 			try {
 				const protocolMessage = {
