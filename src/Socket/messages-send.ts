@@ -1359,13 +1359,11 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			]
 		})
 
-		for (const id of jids) {
+		for (const normalizedId of uniqueUsers) {
+			if (normalizedId === userJid) continue
 			try {
-				const normalizedId = jidNormalizedUser(id)
-				const isPrivate = isPnUser(normalizedId)
-				const type = isPrivate ? 'statusMentionMessage' : 'groupStatusMentionMessage'
 				const protocolMessage = {
-					[type]: {
+					statusMentionMessage: {
 						message: {
 							protocolMessage: {
 								key: msg.key,
@@ -1384,13 +1382,13 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					additionalNodes: [
 						{
 							tag: 'meta',
-							attrs: isPrivate ? { is_status_mention: 'true' } : { is_group_status_mention: 'true' }
+							attrs: { is_status_mention: 'true' }
 						} as BinaryNode
 					]
 				})
 				await delay(2000)
 			} catch (error) {
-				logger.error(`Error sending status mention to ${id}: ${error}`)
+				logger.error(`Error sending status mention to ${normalizedId}: ${error}`)
 			}
 		}
 
