@@ -36,6 +36,7 @@
   - [Recibos, lectura y presencia](#recibos-lectura-y-presencia)
 - [Grupos, comunidades y canales](#grupos-comunidades-y-canales)
 - [Perfil, privacidad y negocios](#perfil-privacidad-y-negocios)
+- [Store (caché en memoria)](#store-caché-en-memoria)
 - [Aviso legal](#aviso-legal)
 - [Créditos](#créditos)
 
@@ -156,6 +157,9 @@ Formatos de JID más comunes:
 | Grupo | `1234567890@g.us` |
 | Canal de difusión (newsletter) | `1234567890@newsletter` |
 | Estado (historia) | `status@broadcast` |
+| Identificador LID | `123456789@lid` |
+
+> **¿Qué es un LID?** Es un identificador que WhatsApp usa como capa de privacidad: en ciertos contextos (por ejemplo, dentro de comunidades) un contacto no se identifica con su número de teléfono (`@s.whatsapp.net`) sino con un `@lid`, un ID que no revela el número real. Bails mantiene internamente una tabla de equivalencias entre el LID y el número de teléfono real (`LIDMappingStore`) para poder cifrar y enviar los mensajes correctamente sin que tengas que hacer nada manualmente. Si necesitás revisarlo, `isLidUser(jid)` te dice si un JID es de tipo LID.
 
 ### `sendMessage` — el método principal
 
@@ -396,6 +400,44 @@ await sock.updateBlockStatus(jid, 'block') // o 'unblock'
 // API de negocios (catálogo, pedidos)
 await sock.getCatalog({ jid })
 await sock.productCreate({ ... })
+```
+
+## Store (caché en memoria)
+
+El **Store** es un caché en memoria de chats, contactos, mensajes y metadata de grupos, que se va llenando solo a medida que van llegando eventos (`sock.ev`). El Baileys oficial más reciente **eliminó este módulo** de la librería; en bails se mantiene disponible porque resuelve un problema muy común al hacer un bot: no depender de volver a pedirle todo a WhatsApp (mensaje anterior, foto de perfil, metadata de un grupo) cada vez que se necesita.
+
+### ¿Cuándo conviene usarlo?
+
+- Si tu bot necesita **buscar mensajes anteriores** (por ejemplo, para citar o reenviar algo que no tenés a mano).
+- Si querés **listar los chats o contactos** sin tener que reconstruirlos manualmente desde los eventos.
+- Si hacés muchas consultas de `groupMetadata` o `profilePictureUrl` y no querés golpear la API de WhatsApp cada vez.
+
+Si tu bot es simple y solo responde a mensajes entrantes sin necesitar historial, podés omitirlo sin problema; el store consume RAM porque guarda todo en memoria.
+
+### Uso
+
+```ts
+import makeWASocket, { makeInMemoryStore, useMultiFileAuthState } from 'baileys'
+
+const store = makeInMemoryStore({})
+store.readFromFile('./store.json') // opcional: cargar datos guardados de una corrida anterior
+
+const { state, saveCreds } = await useMultiFileAuthState('sesion')
+const sock = makeWASocket({ auth: state })
+
+store.bind(sock.ev) // conecta el store a todos los eventos del socket
+
+sock.ev.on('creds.update', saveCreds)
+
+// Guardar el store a disco cada cierto tiempo
+setInterval(() => {
+  store.writeToFile('./store.json')
+}, 10_000)
+
+// Ejemplos de consulta
+const chats = store.chats.all()
+const contacto = store.contacts['5215512345678@s.whatsapp.net']
+const mensaje = await store.loadMessage(jid, mensajeId)
 ```
 
 ## Aviso legal
