@@ -18,6 +18,8 @@ import {
 	assertMediaContent,
 	assertMeId,
 	bindWaitForEvent,
+	compressMedia,
+	convertMedia,
 	captureUnifiedResponse,
 	type CapturedUnifiedResponse,
 	decryptMediaRetryData,
@@ -38,15 +40,17 @@ import {
 	generateUnifiedResponseContent,
 	generateWAMessage,
 	generateWAMessageFromContent,
+	getMediaMetadata,
 	getStatusCodeForMediaRetry,
 	getUrlFromDirectPath,
 	getWAUploadToServer,
+	imageToWebpSticker,
 	type LatexExpressionInput,
 	MessageRetryManager,
 	normalizeMessageContent,
 	parseAndInjectE2ESessions,
 	type RichContentOptions,
-	shouldIncludeBizBinaryNode,
+	resizeImage,
 	unixTimestampSeconds
 } from '../Utils'
 import { getUrlInfo } from '../Utils/link-preview'
@@ -67,7 +71,6 @@ import {
 	type FullJid,
 	getBinaryNodeChild,
 	getBinaryNodeChildren,
-	getBizBinaryNode,
 	isHostedLidUser,
 	isHostedPnUser,
 	isJidBot,
@@ -1105,15 +1108,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				})
 			}
 
-			let alreadyHasBizNode = false
 			if (additionalNodes && additionalNodes.length > 0) {
 				;(stanza.content as BinaryNode[]).push(...additionalNodes)
-				alreadyHasBizNode = additionalNodes.some(node => node.tag === 'biz')
-			}
-
-			const normalizedForBiz = normalizeMessageContent(message)
-			if (!alreadyHasBizNode && normalizedForBiz && shouldIncludeBizBinaryNode(normalizedForBiz)) {
-				;(stanza.content as BinaryNode[]).push(getBizBinaryNode(normalizedForBiz))
 			}
 
 			logger.debug({ msgId }, `sending message to ${participants.length} devices`)
@@ -1273,6 +1269,75 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 	const smgss = new Smgss(waUploadToServer, relayMessage, config, sock)
 
+	const getButtonType = (message: any): string | null => {
+		if (message.listMessage) return 'list'
+		if (message.buttonsMessage) return 'buttons'
+		if (message.templateMessage) return 'template'
+		if (message.interactiveMessage?.nativeFlowMessage) return 'native_flow'
+		if (message.interactiveMessage?.shopStorefrontMessage) return 'shop'
+		if (message.interactiveMessage?.collectionMessage) return 'collection'
+		if (message.interactiveMessage?.carouselMessage) return 'carousel'
+		if (message.interactiveMessage) return 'interactive'
+		return null
+	}
+
+	const getButtonArgs = (message: any): BinaryNode => {
+		const nativeFlow = message.interactiveMessage?.nativeFlowMessage
+		const firstButtonName = nativeFlow?.buttons?.[0]?.name
+		const nativeFlowSpecials = [
+			'mpm',
+			'cta_catalog',
+			'send_location',
+			'call_permission_request',
+			'wa_payment_transaction_details',
+			'automated_greeting_message_view_catalog'
+		]
+		const ts = unixTimestampSeconds().toString()
+		const bizBase: BinaryNodeAttributes = { actual_actors: '2', host_storage: '2', privacy_mode_ts: ts }
+		const qualityControl: BinaryNode = { tag: 'quality_control', attrs: { source_type: 'third_party' } }
+
+		if (nativeFlow && (firstButtonName === 'review_and_pay' || firstButtonName === 'payment_info')) {
+			return {
+				tag: 'biz',
+				attrs: { native_flow_name: firstButtonName === 'review_and_pay' ? 'order_details' : firstButtonName }
+			}
+		} else if (nativeFlow && nativeFlowSpecials.includes(firstButtonName)) {
+			return {
+				tag: 'biz',
+				attrs: bizBase,
+				content: [
+					{
+						tag: 'interactive',
+						attrs: { type: 'native_flow', v: '1' },
+						content: [{ tag: 'native_flow', attrs: { v: '2', name: firstButtonName } }]
+					},
+					qualityControl
+				]
+			}
+		} else if (nativeFlow || message.buttonsMessage || message.templateMessage || message.interactiveMessage) {
+			return {
+				tag: 'biz',
+				attrs: bizBase,
+				content: [
+					{
+						tag: 'interactive',
+						attrs: { type: 'native_flow', v: '1' },
+						content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }]
+					},
+					qualityControl
+				]
+			}
+		} else if (message.listMessage) {
+			return {
+				tag: 'biz',
+				attrs: bizBase,
+				content: [{ tag: 'list', attrs: { v: '2', type: 'product_list' } }, qualityControl]
+			}
+		}
+
+		return { tag: 'biz', attrs: bizBase }
+	}
+
 	const waitForMsgMediaUpdate = bindWaitForEvent(ev, 'messages.media-update')
 
 	registerSocketEndHandler(() => {
@@ -1424,6 +1489,11 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		sendReceipts,
 		readMessages,
 		refreshMediaConn,
+		resize: resizeImage,
+		convert: convertMedia,
+		toSticker: imageToWebpSticker,
+		compress: compressMedia,
+		metadata: getMediaMetadata,
 		// Function (not getter) so the spread in chats.ts preserves the live closure binding.
 		getMediaHost: () => mediaHost,
 		waUploadToServer,
@@ -1640,6 +1710,12 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					} as BinaryNode)
 
 					delete (content as { ai?: boolean }).ai
+				}
+
+				const buttonType = getButtonType(fullMsg.message!)
+				if (buttonType) {
+					const btnNode = getButtonArgs(fullMsg.message!)
+					if (btnNode) additionalNodes.push(btnNode)
 				}
 
 				await relayMessage(jid, fullMsg.message!, {
