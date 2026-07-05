@@ -329,6 +329,7 @@ export type AnyRegularMessageContent = (
 			cards: WACarouselCard[]
 			footer?: string
 	  } & Contextable)
+	| (proto.IMessage & { raw: true })
 ) &
 	ViewOnce &
 	AiLabelable
