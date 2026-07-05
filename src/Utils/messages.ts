@@ -897,7 +897,14 @@ export const generateWAMessageContent = async (
 				buttonsMessage.contentText = (message as any).caption
 			}
 
-			const type = Object.keys(media)[0].replace('Message', '').toUpperCase()
+			const mediaKey = Object.keys(media)[0]
+			if (!mediaKey) {
+				throw new Boom('buttons message needs either "text" or a media field (image/video/document) as header', {
+					statusCode: 400
+				})
+			}
+
+			const type = mediaKey.replace('Message', '').toUpperCase()
 			buttonsMessage.headerType = (ButtonHeaderType as any)[type]
 			Object.assign(buttonsMessage, media)
 		}
