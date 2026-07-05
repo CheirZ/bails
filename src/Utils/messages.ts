@@ -621,14 +621,6 @@ export const hasValidCarouselHeader = (message: any) => {
 	return !!(message.imageMessage || message.videoMessage || message.productMessage)
 }
 
-export const shouldIncludeBizBinaryNode = (message: any) =>
-	!!(
-		message.buttonsMessage ||
-		message.listMessage ||
-		message.templateMessage ||
-		(message.interactiveMessage && message.interactiveMessage.nativeFlowMessage)
-	)
-
 export const hasNonNullishProperty = <K extends PropertyKey>(
 	message: AnyMessageContent,
 	key: K
@@ -651,7 +643,10 @@ export const generateWAMessageContent = async (
 	options: MessageContentGenerationOptions
 ) => {
 	let m: WAMessageContent = {}
-	if (hasNonNullishProperty(message, 'text')) {
+	if (hasNonNullishProperty(message, 'raw')) {
+		delete (message as { raw?: boolean }).raw
+		return message as unknown as WAMessageContent
+	} else if (hasNonNullishProperty(message, 'text')) {
 		const extContent = { text: message.text } as WATextMessage
 
 		let urlInfo = message.linkPreview

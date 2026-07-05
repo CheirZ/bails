@@ -31,7 +31,13 @@ import type { ILogger } from './logger'
 
 const getTmpFilesDirectory = () => tmpdir()
 
-const getImageProcessingLibrary = async () => {
+let imageProcessingLibrary: { sharp?: any; napi?: any; jimp?: any } | undefined
+
+export const getImageProcessingLibrary = async () => {
+	if (imageProcessingLibrary) {
+		return imageProcessingLibrary
+	}
+
 	//@ts-ignore
 	const [jimp, sharp, napi] = await Promise.all([
 		import('jimp').catch(() => {}),
@@ -41,18 +47,16 @@ const getImageProcessingLibrary = async () => {
 	])
 
 	if (sharp) {
-		return { sharp }
+		imageProcessingLibrary = { sharp }
+	} else if (napi) {
+		imageProcessingLibrary = { napi }
+	} else if (jimp) {
+		imageProcessingLibrary = { jimp }
+	} else {
+		throw new Boom('No image processing library available')
 	}
 
-	if (napi) {
-		return { napi }
-	}
-
-	if (jimp) {
-		return { jimp }
-	}
-
-	throw new Boom('No image processing library available')
+	return imageProcessingLibrary
 }
 
 export const hkdfInfoKey = (type: MediaType) => {
@@ -1066,3 +1070,161 @@ const MEDIA_RETRY_STATUS_MAP = {
 	[proto.MediaRetryNotification.ResultType.NOT_FOUND]: 404,
 	[proto.MediaRetryNotification.ResultType.GENERAL_ERROR]: 418
 } as const
+
+const runFfmpegBuffer = (args: string[], input: Buffer): Promise<Buffer> => {
+	return new Promise((resolve, reject) => {
+		const ff = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'ignore'] })
+		const chunks: Buffer[] = []
+		let len = 0
+		ff.stdout.on('data', (c: Buffer) => {
+			chunks.push(c)
+			len += c.length
+		})
+		ff.on('close', code => (code === 0 ? resolve(Buffer.concat(chunks, len)) : reject(new Boom(`ffmpeg exited with code ${code}`))))
+		ff.on('error', reject)
+		ff.stdin.end(input)
+	})
+}
+
+export const resizeImage = async (
+	buf: Buffer,
+	width: number,
+	height: number,
+	opts: { quality?: number } = {}
+): Promise<Buffer> => {
+	const { quality = 80 } = opts
+	const lib = await getImageProcessingLibrary()
+	if ('sharp' in lib && typeof lib.sharp?.default === 'function') {
+		return lib.sharp.default(buf).resize(width, height, { fit: 'inside' }).jpeg({ quality }).toBuffer()
+	}
+
+	//@ts-ignore
+	const jimpMod = await import('jimp').catch(() => undefined)
+	if (jimpMod) {
+		const Jimp = (jimpMod as any).default || jimpMod
+		const img = await Jimp.read(buf)
+		img.resize(width, height)
+		img.quality(quality)
+		return img.getBufferAsync(Jimp.MIME_JPEG)
+	}
+
+	throw new Boom('resizeImage requires "sharp" or "jimp" to be installed', { statusCode: 500 })
+}
+
+export const convertMedia = async (buf: Buffer, opts: { to: string }): Promise<Buffer> => {
+	const fmt = opts.to.toLowerCase().replace('.', '')
+	const imageFormats: Record<string, 'jpeg' | 'png' | 'webp'> = { jpeg: 'jpeg', jpg: 'jpeg', png: 'png', webp: 'webp' }
+
+	if (imageFormats[fmt]) {
+		const lib = await getImageProcessingLibrary()
+		if ('sharp' in lib && typeof lib.sharp?.default === 'function') {
+			return lib.sharp.default(buf).toFormat(imageFormats[fmt]).toBuffer()
+		}
+
+		throw new Boom('convertMedia to an image format requires "sharp" to be installed', { statusCode: 500 })
+	}
+
+	const args = ['-i', 'pipe:0', '-y']
+	if (fmt === 'mp4') {
+		args.push('-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4')
+	} else {
+		args.push('-f', fmt)
+	}
+
+	args.push('pipe:1')
+	return runFfmpegBuffer(args, buf)
+}
+
+export const imageToWebpSticker = async (buf: Buffer, opts: { quality?: number } = {}): Promise<Buffer> => {
+	const { quality = 80 } = opts
+	const lib = await getImageProcessingLibrary()
+	if ('sharp' in lib && typeof lib.sharp?.default === 'function') {
+		return lib.sharp
+			.default(buf)
+			.resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+			.webp({ quality })
+			.toBuffer()
+	}
+
+	throw new Boom('imageToWebpSticker requires "sharp" to be installed', { statusCode: 500 })
+}
+
+export const compressMedia = async (buf: Buffer, opts: { quality?: number } = {}): Promise<Buffer> => {
+	const { quality = 50 } = opts
+	const lib = await getImageProcessingLibrary()
+	if ('sharp' in lib && typeof lib.sharp?.default === 'function') {
+		try {
+			const { format } = await lib.sharp.default(buf).metadata()
+			if (format) {
+				return lib.sharp.default(buf).toFormat(format, { quality }).toBuffer()
+			}
+		} catch {
+			// not an image sharp can read — fall through to the ffmpeg video path below
+		}
+	}
+
+	const crf = String(Math.round(51 - (quality / 100) * 51))
+	return runFfmpegBuffer(
+		['-i', 'pipe:0', '-y', '-crf', crf, '-preset', 'ultrafast', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'],
+		buf
+	)
+}
+
+export type MediaMetadataResult = {
+	size: number
+	mimetype?: string
+	width?: number
+	height?: number
+	channels?: number
+	hasAlpha?: boolean
+	duration?: number
+}
+
+export const getMediaMetadata = async (buf: Buffer): Promise<MediaMetadataResult> => {
+	const result: MediaMetadataResult = { size: buf.length }
+
+	const lib = await getImageProcessingLibrary()
+	if ('sharp' in lib && typeof lib.sharp?.default === 'function') {
+		try {
+			const meta = await lib.sharp.default(buf).metadata()
+			if (meta.format) {
+				result.mimetype = `image/${meta.format}`
+				result.width = meta.width
+				result.height = meta.height
+				result.channels = meta.channels
+				result.hasAlpha = meta.hasAlpha
+				return result
+			}
+		} catch {
+			// not an image sharp can read — fall through to ffprobe for video/audio
+		}
+	}
+
+	return new Promise(resolve => {
+		const ff = spawn('ffprobe', ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', 'pipe:0'], {
+			stdio: ['pipe', 'pipe', 'ignore']
+		})
+		const chunks: Buffer[] = []
+		ff.stdout.on('data', (c: Buffer) => chunks.push(c))
+		ff.on('close', () => {
+			try {
+				const d = JSON.parse(Buffer.concat(chunks).toString())
+				const vid = d.streams?.find((s: any) => s.codec_type === 'video')
+				const aud = d.streams?.find((s: any) => s.codec_type === 'audio')
+				if (vid) {
+					result.width = vid.width
+					result.height = vid.height
+				}
+
+				result.duration = parseFloat(d.format?.duration) || undefined
+				result.mimetype = vid ? 'video/mp4' : aud ? 'audio/mpeg' : undefined
+			} catch {
+				// ffprobe output wasn't parseable JSON — return what we already know (just size)
+			}
+
+			resolve(result)
+		})
+		ff.on('error', () => resolve(result))
+		ff.stdin.end(buf)
+	})
+}
