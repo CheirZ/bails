@@ -8,6 +8,11 @@ import type { CacheStore } from './Socket'
 
 // export the WAMessage Prototypes
 export { proto as WAProto }
+
+export const ButtonHeaderType = proto.Message.ButtonsMessage.HeaderType
+export const ButtonType = proto.Message.ButtonsMessage.Button.Type
+export const CarouselCardType = proto.Message.InteractiveMessage.CarouselMessage.CarouselCardType
+export const ListType = proto.Message.ListMessage.ListType
 export type WAMessage = proto.IWebMessageInfo & {
 	key: WAMessageKey
 	messageStubParameters?: any
@@ -291,9 +296,80 @@ export type AnyRegularMessageContent = (
 	  }
 	| SharePhoneNumber
 	| RequestPhoneNumber
+	| ({
+			buttons: WAButtonContent[]
+			footer?: string
+			text?: string
+	  } & Contextable &
+			Mentionable)
+	| ({
+			sections: WAListSection[]
+			title?: string
+			buttonText: string
+			footer?: string
+			description: string
+	  } & Contextable &
+			Mentionable)
+	| ({
+			templateButtons: WATemplateButton[]
+			footer?: string
+			id?: string
+			text?: string
+	  } & Contextable)
+	| ({
+			nativeFlow: WAButtonContent[] | { buttons: WAButtonContent[] }
+			footer?: string
+			title?: string
+			subtitle?: string
+			text?: string
+			audioFooter?: WAMediaUpload
+	  } & Contextable &
+			Mentionable)
+	| ({
+			cards: WACarouselCard[]
+			footer?: string
+	  } & Contextable)
 ) &
 	ViewOnce &
 	AiLabelable
+
+export type WAButtonContent = {
+	text?: string
+	buttonText?: string
+	icon?: string
+} & (
+	| { id: string }
+	| { url: string; useWebview?: boolean }
+	| { call: string }
+	| { copy: string }
+	| { sections: WAListSection[] }
+	| { name: string; paramsJson?: string }
+)
+
+export type WAListSection = {
+	title?: string
+	rows: {
+		title: string
+		rowId: string
+		description?: string
+	}[]
+}
+
+export type WATemplateButton =
+	| { text?: string; buttonText?: string; id: string }
+	| { text?: string; buttonText?: string; url: string }
+	| { text?: string; buttonText?: string; call: string }
+
+export type WACarouselCard = {
+	text?: string
+	caption?: string
+	title?: string
+	subtitle?: string
+	footer?: string
+	thumbnail?: WAMediaUpload
+	audioFooter?: WAMediaUpload
+	nativeFlow?: WAButtonContent[]
+} & AnyMediaMessageContent
 
 export type WAStickerPackSticker = {
 	sticker: WAMediaUpload
