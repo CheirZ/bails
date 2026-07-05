@@ -1587,7 +1587,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					...options
 				})
 				const isEventMsg = 'event' in content && !!content.event
-				const isDeleteMsg = 'delete' in content && !!content.delete
+				const isDeleteMsg = 'delete' in content && !!(content as any).delete
 				const isEditMsg = 'edit' in content && !!content.edit
 				const isPinMsg = 'pin' in content && !!content.pin
 				const isPollMessage = 'poll' in content && !!content.poll
@@ -1597,7 +1597,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				// required for delete
 				if (isDeleteMsg) {
 					// if the chat is a group, and I am not the author, then delete the message as an admin
-					if (isJidGroup(content.delete?.remoteJid as string) && !content.delete?.fromMe) {
+					if (isJidGroup((content as any).delete?.remoteJid as string) && !(content as any).delete?.fromMe) {
 						additionalAttributes.edit = '8'
 					} else {
 						additionalAttributes.edit = '7'
