@@ -46,6 +46,7 @@ import {
 	normalizeMessageContent,
 	parseAndInjectE2ESessions,
 	type RichContentOptions,
+	shouldIncludeBizBinaryNode,
 	unixTimestampSeconds
 } from '../Utils'
 import { getUrlInfo } from '../Utils/link-preview'
@@ -66,6 +67,7 @@ import {
 	type FullJid,
 	getBinaryNodeChild,
 	getBinaryNodeChildren,
+	getBizBinaryNode,
 	isHostedLidUser,
 	isHostedPnUser,
 	isJidBot,
@@ -83,6 +85,7 @@ import {
 } from '../WABinary'
 import { USyncQuery, USyncUser } from '../WAUSync'
 import { makeNewsletterSocket } from './newsletter'
+import { Smgss } from './smgss'
 
 export const makeMessagesSocket = (config: SocketConfig) => {
 	const {
@@ -1102,8 +1105,15 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				})
 			}
 
+			let alreadyHasBizNode = false
 			if (additionalNodes && additionalNodes.length > 0) {
 				;(stanza.content as BinaryNode[]).push(...additionalNodes)
+				alreadyHasBizNode = additionalNodes.some(node => node.tag === 'biz')
+			}
+
+			const normalizedForBiz = normalizeMessageContent(message)
+			if (!alreadyHasBizNode && normalizedForBiz && shouldIncludeBizBinaryNode(normalizedForBiz)) {
+				;(stanza.content as BinaryNode[]).push(getBizBinaryNode(normalizedForBiz))
 			}
 
 			logger.debug({ msgId }, `sending message to ${participants.length} devices`)
@@ -1261,6 +1271,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 	const waUploadToServer = getWAUploadToServer(config, refreshMediaConn)
 
+	const smgss = new Smgss(waUploadToServer, relayMessage, config, sock)
+
 	const waitForMsgMediaUpdate = bindWaitForEvent(ev, 'messages.media-update')
 
 	registerSocketEndHandler(() => {
@@ -1359,11 +1371,16 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			]
 		})
 
-		for (const normalizedId of uniqueUsers) {
-			if (normalizedId === userJid) continue
+		for (const id of jids) {
 			try {
+				const normalizedId = jidNormalizedUser(id)
+				if (normalizedId === userJid) continue
+
+				const isPrivate = isPnUser(normalizedId)
+				const type = isPrivate ? 'statusMentionMessage' : 'groupStatusMentionMessage'
+
 				const protocolMessage = {
-					statusMentionMessage: {
+					[type]: {
 						message: {
 							protocolMessage: {
 								key: msg.key,
@@ -1382,13 +1399,13 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					additionalNodes: [
 						{
 							tag: 'meta',
-							attrs: { is_status_mention: 'true' }
+							attrs: isPrivate ? { is_status_mention: 'true' } : { is_group_status_mention: 'true' }
 						} as BinaryNode
 					]
 				})
 				await delay(2000)
 			} catch (error) {
-				logger.error(`Error sending status mention to ${normalizedId}: ${error}`)
+				logger.error(`Error sending status mention to ${id}: ${error}`)
 			}
 		}
 
@@ -1519,6 +1536,19 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 		sendMessage: async (jid: string, content: AnyMessageContent, options: MiscMessageGenerationOptions = {}) => {
 			const userJid = authState.creds.me!.id
+
+			const smgssType = smgss.detectType(content)
+			if (smgssType) {
+				const quoted = (options as any)?.quoted
+				const built = await smgss.handle(smgssType, content, jid, quoted)
+
+				if (smgssType === 'ALBUM' || smgssType === 'EVENT' || smgssType === 'POLL_RESULT' || smgssType === 'GROUP_STORY') {
+					return built
+				}
+
+				content = built as AnyMessageContent
+			}
+
 			if (
 				typeof content === 'object' &&
 				'disappearingMessagesInChat' in content &&
