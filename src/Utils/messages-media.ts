@@ -666,7 +666,7 @@ export const downloadEncryptedContent = async (
 
 	let remainingBytes = Buffer.from([])
 
-	let aes: Crypto.Decipher
+	let aes: Crypto.Decipheriv
 
 	const pushBytes = (bytes: Buffer, push: (bytes: Buffer) => void) => {
 		if (startByte || endByte) {
@@ -1158,9 +1158,7 @@ export const compressMedia = async (buf: Buffer, opts: { quality?: number } = {}
 			if (format) {
 				return lib.sharp.default(buf).toFormat(format, { quality }).toBuffer()
 			}
-		} catch {
-			// not an image sharp can read — fall through to the ffmpeg video path below
-		}
+		} catch {}
 	}
 
 	const crf = String(Math.round(51 - (quality / 100) * 51))
@@ -1195,9 +1193,7 @@ export const getMediaMetadata = async (buf: Buffer): Promise<MediaMetadataResult
 				result.hasAlpha = meta.hasAlpha
 				return result
 			}
-		} catch {
-			// not an image sharp can read — fall through to ffprobe for video/audio
-		}
+		} catch {}
 	}
 
 	return new Promise(resolve => {
@@ -1218,9 +1214,7 @@ export const getMediaMetadata = async (buf: Buffer): Promise<MediaMetadataResult
 
 				result.duration = parseFloat(d.format?.duration) || undefined
 				result.mimetype = vid ? 'video/mp4' : aud ? 'audio/mpeg' : undefined
-			} catch {
-				// ffprobe output wasn't parseable JSON — return what we already know (just size)
-			}
+			} catch {}
 
 			resolve(result)
 		})

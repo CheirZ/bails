@@ -646,6 +646,199 @@ export const generateWAMessageContent = async (
 	if (hasNonNullishProperty(message, 'raw')) {
 		delete (message as { raw?: boolean }).raw
 		return message as unknown as WAMessageContent
+	} else if (hasNonNullishProperty(message, 'buttons')) {
+		const buttonsMessage: any = {
+			buttons: (message as any).buttons.map((button: any) => {
+				const buttonText = button.text || button.buttonText
+				if (button.nativeFlowInfo) {
+					return {
+						buttonId: button.id || button.buttonId,
+						buttonText:
+							typeof buttonText === 'string' ? { displayText: buttonText } : buttonText,
+						nativeFlowInfo: button.nativeFlowInfo,
+						type: ButtonType.NATIVE_FLOW
+					}
+				} else if (button.sections) {
+					return {
+						nativeFlowInfo: {
+							name: 'single_select',
+							paramsJson: JSON.stringify({ title: buttonText, sections: button.sections })
+						},
+						type: ButtonType.NATIVE_FLOW
+					}
+				} else if (button.name) {
+					return {
+						nativeFlowInfo: { name: button.name, paramsJson: button.paramsJson },
+						type: ButtonType.NATIVE_FLOW
+					}
+				}
+
+				return {
+					buttonId: button.id || button.buttonId,
+					buttonText: typeof buttonText === 'string' ? { displayText: buttonText } : buttonText,
+					type: button.type || ButtonType.RESPONSE
+				}
+			})
+		}
+
+		if ((message as any).text) {
+			buttonsMessage.contentText = (message as any).text
+			buttonsMessage.headerType = ButtonHeaderType.EMPTY
+		} else {
+			const media = await prepareWAMessageMedia(message as unknown as AnyMediaMessageContent, options)
+			if ((message as any).caption) {
+				buttonsMessage.contentText = (message as any).caption
+			}
+
+			const mediaKey = Object.keys(media)[0]
+			if (!mediaKey) {
+				throw new Boom('buttons message needs either "text" or a media field (image/video/document) as header', {
+					statusCode: 400
+				})
+			}
+
+			const type = mediaKey.replace('Message', '').toUpperCase()
+			buttonsMessage.headerType = (ButtonHeaderType as any)[type]
+			Object.assign(buttonsMessage, media)
+		}
+
+		if ((message as any).footer) {
+			buttonsMessage.footerText = (message as any).footer
+		}
+
+		m.buttonsMessage = buttonsMessage
+	} else if (hasNonNullishProperty(message, 'sections')) {
+		m.listMessage = {
+			sections: (message as any).sections,
+			buttonText: (message as any).buttonText,
+			title: (message as any).title,
+			footerText: (message as any).footer,
+			description: (message as any).description,
+			listType: ListType.SINGLE_SELECT
+		}
+	} else if (hasNonNullishProperty(message, 'templateButtons')) {
+		const hydratedTemplate: any = {
+			hydratedButtons: (message as any).templateButtons.map((button: any, i: number) => {
+				const buttonText = button.text || button.buttonText
+				if (button.id) {
+					return { index: i, quickReplyButton: { displayText: buttonText || 'Click', id: button.id } }
+				} else if (button.url) {
+					return { index: i, urlButton: { displayText: buttonText || 'Visit', url: button.url } }
+				} else if (button.call) {
+					return { index: i, callButton: { displayText: buttonText || 'Call', phoneNumber: button.call } }
+				}
+
+				button.index = button.index || i
+				return button
+			})
+		}
+
+		if ((message as any).text) {
+			hydratedTemplate.hydratedContentText = (message as any).text
+		} else {
+			const media = await prepareWAMessageMedia(message as unknown as AnyMediaMessageContent, options)
+			if ((message as any).caption) {
+				hydratedTemplate.hydratedTitleText = (message as any).title
+				hydratedTemplate.hydratedContentText = (message as any).caption
+			}
+
+			Object.assign(hydratedTemplate, media)
+		}
+
+		if ((message as any).footer) {
+			hydratedTemplate.hydratedFooterText = (message as any).footer
+		}
+
+		hydratedTemplate.templateId = (message as any).id || `template-${Date.now()}`
+		m.templateMessage = {
+			hydratedFourRowTemplate: hydratedTemplate,
+			hydratedTemplate
+		} as any
+	} else if (hasNonNullishProperty(message, 'nativeFlow')) {
+		const interactiveMessage: any = {
+			nativeFlowMessage: prepareNativeFlowButtons(message)
+		}
+
+		if ((message as any).text) {
+			interactiveMessage.body = { text: (message as any).text }
+		} else {
+			const media = await prepareWAMessageMedia(message as unknown as AnyMediaMessageContent, options)
+			if ((message as any).caption) {
+				const isValidHeader = hasValidInteractiveHeader(media)
+				if (!isValidHeader) {
+					throw new Boom('Invalid media type for interactive message header', { statusCode: 400 })
+				}
+
+				interactiveMessage.header = {
+					title: (message as any).title || '',
+					subtitle: (message as any).subtitle || '',
+					hasMediaAttachment: isValidHeader
+				}
+				interactiveMessage.body = { text: (message as any).caption }
+			}
+
+			Object.assign(interactiveMessage.header || (interactiveMessage.header = {}), media)
+			if (interactiveMessage.header?.videoMessage) {
+				interactiveMessage.gifPlayback = interactiveMessage.header.videoMessage.gifPlayback
+				delete interactiveMessage.header.videoMessage.gifPlayback
+			}
+		}
+
+		if ((message as any).audioFooter) {
+			const { audioMessage } = await prepareWAMessageMedia({ audio: (message as any).audioFooter }, options)
+			interactiveMessage.footer = { audioMessage, hasMediaAttachment: true }
+		} else if ((message as any).footer) {
+			interactiveMessage.footer = { text: (message as any).footer }
+		}
+
+		m.interactiveMessage = interactiveMessage
+	} else if (hasNonNullishProperty(message, 'cards')) {
+		const interactiveMessage: any = {
+			carouselMessage: {
+				cards: await Promise.all(
+					(message as any).cards.map(async (card: any) => {
+						const carouselHeader = await prepareWAMessageMedia(card, options).catch(() => ({}) as any)
+						const isValidHeader = hasValidCarouselHeader(carouselHeader)
+						if (!isValidHeader) {
+							throw new Boom('Invalid media type for carousel card', { statusCode: 400 })
+						}
+
+						const carouselCard: any = {
+							nativeFlowMessage: prepareNativeFlowButtons({ nativeFlow: card.nativeFlow || [] })
+						}
+
+						if (card.text) {
+							carouselCard.body = { text: card.text }
+						} else if (card.caption) {
+							carouselCard.header = {
+								title: card.title || '',
+								subtitle: card.subtitle || '',
+								hasMediaAttachment: isValidHeader,
+								...carouselHeader
+							}
+							carouselCard.body = { text: card.caption }
+						}
+
+						if (card.audioFooter) {
+							const { audioMessage } = await prepareWAMessageMedia({ audio: card.audioFooter }, options)
+							carouselCard.footer = { audioMessage, hasMediaAttachment: true }
+						} else if (card.footer) {
+							carouselCard.footer = { text: card.footer }
+						}
+
+						return carouselCard
+					})
+				),
+				carouselCardType: CarouselCardType.UNKNOWN,
+				messageVersion: 1
+			}
+		}
+
+		if ((message as any).footer) {
+			interactiveMessage.footer = { text: (message as any).footer }
+		}
+
+		m.interactiveMessage = interactiveMessage
 	} else if (hasNonNullishProperty(message, 'text')) {
 		const extContent = { text: message.text } as WATextMessage
 
@@ -856,191 +1049,6 @@ export const generateWAMessageContent = async (
 				initiatedByMe: true
 			}
 		}
-	} else if (hasNonNullishProperty(message, 'buttons')) {
-		const buttonsMessage: any = {
-			buttons: (message as any).buttons.map((button: any) => {
-				const buttonText = button.text || button.buttonText
-				if (button.sections) {
-					return {
-						nativeFlowInfo: {
-							name: 'single_select',
-							paramsJson: JSON.stringify({ title: buttonText, sections: button.sections })
-						},
-						type: ButtonType.NATIVE_FLOW
-					}
-				} else if (button.name) {
-					return {
-						nativeFlowInfo: { name: button.name, paramsJson: button.paramsJson },
-						type: ButtonType.NATIVE_FLOW
-					}
-				}
-
-				return {
-					buttonId: button.id || button.buttonId,
-					buttonText: typeof buttonText === 'string' ? { displayText: buttonText } : buttonText,
-					type: button.type || ButtonType.RESPONSE
-				}
-			})
-		}
-
-		if ((message as any).text) {
-			buttonsMessage.contentText = (message as any).text
-			buttonsMessage.headerType = ButtonHeaderType.EMPTY
-		} else {
-			const media = await prepareWAMessageMedia(message as unknown as AnyMediaMessageContent, options)
-			if ((message as any).caption) {
-				buttonsMessage.contentText = (message as any).caption
-			}
-
-			const mediaKey = Object.keys(media)[0]
-			if (!mediaKey) {
-				throw new Boom('buttons message needs either "text" or a media field (image/video/document) as header', {
-					statusCode: 400
-				})
-			}
-
-			const type = mediaKey.replace('Message', '').toUpperCase()
-			buttonsMessage.headerType = (ButtonHeaderType as any)[type]
-			Object.assign(buttonsMessage, media)
-		}
-
-		if ((message as any).footer) {
-			buttonsMessage.footerText = (message as any).footer
-		}
-
-		m.buttonsMessage = buttonsMessage
-	} else if (hasNonNullishProperty(message, 'sections')) {
-		m.listMessage = {
-			sections: (message as any).sections,
-			buttonText: (message as any).buttonText,
-			title: (message as any).title,
-			footerText: (message as any).footer,
-			description: (message as any).description,
-			listType: ListType.SINGLE_SELECT
-		}
-	} else if (hasNonNullishProperty(message, 'templateButtons')) {
-		const hydratedTemplate: any = {
-			hydratedButtons: (message as any).templateButtons.map((button: any, i: number) => {
-				const buttonText = button.text || button.buttonText
-				if (button.id) {
-					return { index: i, quickReplyButton: { displayText: buttonText || 'Click', id: button.id } }
-				} else if (button.url) {
-					return { index: i, urlButton: { displayText: buttonText || 'Visit', url: button.url } }
-				} else if (button.call) {
-					return { index: i, callButton: { displayText: buttonText || 'Call', phoneNumber: button.call } }
-				}
-
-				button.index = button.index || i
-				return button
-			})
-		}
-
-		if ((message as any).text) {
-			hydratedTemplate.hydratedContentText = (message as any).text
-		} else {
-			const media = await prepareWAMessageMedia(message as unknown as AnyMediaMessageContent, options)
-			if ((message as any).caption) {
-				hydratedTemplate.hydratedTitleText = (message as any).title
-				hydratedTemplate.hydratedContentText = (message as any).caption
-			}
-
-			Object.assign(hydratedTemplate, media)
-		}
-
-		if ((message as any).footer) {
-			hydratedTemplate.hydratedFooterText = (message as any).footer
-		}
-
-		hydratedTemplate.templateId = (message as any).id || `template-${Date.now()}`
-		m.templateMessage = {
-			hydratedFourRowTemplate: hydratedTemplate,
-			hydratedTemplate
-		} as any
-	} else if (hasNonNullishProperty(message, 'nativeFlow')) {
-		const interactiveMessage: any = {
-			nativeFlowMessage: prepareNativeFlowButtons(message)
-		}
-
-		if ((message as any).text) {
-			interactiveMessage.body = { text: (message as any).text }
-		} else {
-			const media = await prepareWAMessageMedia(message as unknown as AnyMediaMessageContent, options)
-			if ((message as any).caption) {
-				const isValidHeader = hasValidInteractiveHeader(media)
-				if (!isValidHeader) {
-					throw new Boom('Invalid media type for interactive message header', { statusCode: 400 })
-				}
-
-				interactiveMessage.header = {
-					title: (message as any).title || '',
-					subtitle: (message as any).subtitle || '',
-					hasMediaAttachment: isValidHeader
-				}
-				interactiveMessage.body = { text: (message as any).caption }
-			}
-
-			Object.assign(interactiveMessage.header || (interactiveMessage.header = {}), media)
-			if (interactiveMessage.header?.videoMessage) {
-				interactiveMessage.gifPlayback = interactiveMessage.header.videoMessage.gifPlayback
-				delete interactiveMessage.header.videoMessage.gifPlayback
-			}
-		}
-
-		if ((message as any).audioFooter) {
-			const { audioMessage } = await prepareWAMessageMedia({ audio: (message as any).audioFooter }, options)
-			interactiveMessage.footer = { audioMessage, hasMediaAttachment: true }
-		} else if ((message as any).footer) {
-			interactiveMessage.footer = { text: (message as any).footer }
-		}
-
-		m.interactiveMessage = interactiveMessage
-	} else if (hasNonNullishProperty(message, 'cards')) {
-		const interactiveMessage: any = {
-			carouselMessage: {
-				cards: await Promise.all(
-					(message as any).cards.map(async (card: any) => {
-						const carouselHeader = await prepareWAMessageMedia(card, options).catch(() => ({}) as any)
-						const isValidHeader = hasValidCarouselHeader(carouselHeader)
-						if (!isValidHeader) {
-							throw new Boom('Invalid media type for carousel card', { statusCode: 400 })
-						}
-
-						const carouselCard: any = {
-							nativeFlowMessage: prepareNativeFlowButtons({ nativeFlow: card.nativeFlow || [] })
-						}
-
-						if (card.text) {
-							carouselCard.body = { text: card.text }
-						} else if (card.caption) {
-							carouselCard.header = {
-								title: card.title || '',
-								subtitle: card.subtitle || '',
-								hasMediaAttachment: isValidHeader,
-								...carouselHeader
-							}
-							carouselCard.body = { text: card.caption }
-						}
-
-						if (card.audioFooter) {
-							const { audioMessage } = await prepareWAMessageMedia({ audio: card.audioFooter }, options)
-							carouselCard.footer = { audioMessage, hasMediaAttachment: true }
-						} else if (card.footer) {
-							carouselCard.footer = { text: card.footer }
-						}
-
-						return carouselCard
-					})
-				),
-				carouselCardType: CarouselCardType.UNKNOWN,
-				messageVersion: 1
-			}
-		}
-
-		if ((message as any).footer) {
-			interactiveMessage.footer = { text: (message as any).footer }
-		}
-
-		m.interactiveMessage = interactiveMessage
 	} else if (hasNonNullishProperty(message, 'stickerPack')) {
 		m.stickerPackMessage = await generateStickerPackMessage(message.stickerPack, options)
 		m.stickerPackMessage.contextInfo = {
