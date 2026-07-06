@@ -666,7 +666,7 @@ export const downloadEncryptedContent = async (
 
 	let remainingBytes = Buffer.from([])
 
-	let aes: Crypto.Decipheriv
+	let aes: ReturnType<typeof Crypto.createDecipheriv>
 
 	const pushBytes = (bytes: Buffer, push: (bytes: Buffer) => void) => {
 		if (startByte || endByte) {
