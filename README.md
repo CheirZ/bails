@@ -27,8 +27,12 @@
   - [`sendMessage`](#sendmessage-el-método-principal)
   - [Mensajes de texto](#mensajes-de-texto)
   - [Mensajes multimedia](#mensajes-multimedia)
+  - [Procesar medios sin enviarlos](#procesar-medios-sin-enviarlos)
   - [Ubicación y contactos](#ubicación-y-contactos)
-  - [Encuestas, reacciones y botones](#encuestas-reacciones-y-botones)
+  - [Encuestas, reacciones y respuestas a botones](#encuestas-reacciones-y-respuestas-a-botones)
+  - [Botones, listas, templates y carousel](#botones-listas-templates-y-carousel)
+  - [Mensajes crudos (smgss): pagos, productos, álbumes, eventos y más](#mensajes-crudos-smgss-pagos-productos-álbumes-eventos-y-más)
+  - [Mensajes "raw" (proto armado a mano)](#mensajes-raw-proto-armado-a-mano)
   - [Editar, eliminar, reenviar y fijar](#editar-eliminar-reenviar-y-fijar)
   - [Mensajes enriquecidos](#mensajes-enriquecidos)
   - [Marcar un mensaje como generado por IA](#marcar-un-mensaje-como-generado-por-ia)
@@ -44,7 +48,7 @@
 
 **Bails** es una librería para conectarse a WhatsApp Web de forma directa, sin depender de un navegador ni de librerías de automatización como Selenium o Puppeteer. Toda la comunicación con WhatsApp ocurre a través de un **WebSocket**, tal como lo hace la propia versión web de WhatsApp, lo que se traduce en una librería rápida y liviana en recursos.
 
-Es un fork de **Baileys**, y conserva casi toda su base: el protocolo, el cifrado, la arquitectura del socket y el manejo de credenciales. Además, incorpora algunos métodos para enviar mensajes con contenido enriquecido (tablas, listas, código y LaTeX) — más detalle en la sección [Mensajes enriquecidos](#mensajes-enriquecidos).
+Es un fork de **Baileys**, y conserva casi toda su base: el protocolo, el cifrado, la arquitectura del socket y el manejo de credenciales. Además, incorpora algunos métodos para enviar mensajes con contenido enriquecido (tablas, listas, código y LaTeX), botones/listas/carousel nativos de WhatsApp, y un dispatcher para contenido avanzado (pagos, productos, álbumes, eventos) — más detalle en las secciones correspondientes.
 
 Este README está enfocado principalmente en explicar **cómo enviar cada tipo de mensaje**, ya que es lo que más se necesita a la hora de integrar la librería en un proyecto real.
 
@@ -52,9 +56,13 @@ Este README está enfocado principalmente en explicar **cómo enviar cada tipo d
 
 - 🔌 Conexión directa por WebSocket, sin navegador de por medio.
 - 💬 Envío de todo tipo de mensajes: texto, imágenes, video, audio, notas de voz, documentos, stickers, ubicación, contactos, encuestas y más.
+- 🔘 Botones, listas de selección, templates y carousel (interactive/native_flow), con el nodo `biz` necesario para que WhatsApp los acepte y renderice.
+- 💳 Contenido avanzado vía `smgss`: pedidos de pago, cards de producto, álbumes, eventos, resultados de encuesta e historias por grupo.
+- 🖼️ Procesamiento de medios (`resize`, `convert`, `toSticker`, `compress`, `metadata`) sobre cualquier `Buffer`, sin necesidad de enviarlo.
+- 🛠️ Salida de emergencia `raw: true` para mandar un mensaje armado a mano cuando ningún builder alcanza.
 - 🧩 Métodos para enviar mensajes enriquecidos: tablas, listas, código y LaTeX.
 - 🤖 Marca de "generado por IA" en mensajes de chats individuales.
-- 📸 Publicación de estados (historias) con notificación por menciones.
+- 📸 Publicación de estados (historias) con notificación por menciones, tanto a contactos individuales como a grupos.
 - 👥 Administración completa de grupos, comunidades y canales de difusión.
 - 🔐 2 métodos de vinculación: código QR o código de emparejamiento.
 - 🗂️ 3 formas de guardar credenciales: por archivos múltiples, un solo archivo o SQLite.
@@ -168,7 +176,7 @@ await sock.sendMessage(jid, contenido, opciones)
 ```
 
 - **`jid`** *(string)*: destinatario del mensaje (contacto, grupo, canal o `status@broadcast` para estados).
-- **`contenido`** *(`AnyMessageContent`)*: define qué tipo de mensaje se envía (texto, imagen, video, encuesta, etc. — ver detalle abajo).
+- **`contenido`** *(`AnyMessageContent`)*: define qué tipo de mensaje se envía (texto, imagen, video, encuesta, botones, etc. — ver detalle abajo).
 - **`opciones`** *(`MiscMessageGenerationOptions`, opcional)*: permite, entre otras cosas:
   - `quoted`: el mensaje al que se responde (citar).
   - `messageId`: forzar un ID de mensaje propio.
@@ -178,6 +186,8 @@ await sock.sendMessage(jid, contenido, opciones)
 Todos los métodos de envío devuelven una promesa que se resuelve con el mensaje ya construido y enviado (`WAMessage`), el cual podés guardar para citarlo, editarlo o eliminarlo más adelante.
 
 El resto de los métodos de esta sección (`sendTable`, `sendList`, `sendCodeBlock`, etc.) son en realidad **atajos**: por debajo construyen el `contenido` correcto y llaman a `relayMessage` por vos, para que no tengas que armar la estructura del mensaje a mano.
+
+> Si el `contenido` incluye botones, lista, template o carousel, `sendMessage` agrega automáticamente el nodo `biz` que WhatsApp exige para aceptarlos y renderizarlos — no hace falta que hagas nada extra para eso.
 
 ### Mensajes de texto
 
@@ -222,6 +232,20 @@ await sock.sendMessage(jid, {
 
 > `WAMediaUpload` acepta una URL (`{ url: '...' }`), un `Buffer` o un `Stream`, tanto para archivos locales como remotos.
 
+### Procesar medios sin enviarlos
+
+Además de enviar, el socket expone helpers para procesar imágenes y video directamente sobre un `Buffer`, sin que eso implique mandar ningún mensaje:
+
+```ts
+const redimensionada = await sock.resize(buffer, 512, 512, { quality: 80 })
+const convertida = await sock.convert(buffer, { to: 'webp' })
+const sticker = await sock.toSticker(buffer, { quality: 80 })
+const comprimida = await sock.compress(buffer, { quality: 50 })
+const info = await sock.metadata(buffer) // { size, mimetype, width, height, duration, ... }
+```
+
+Usan `sharp` (si está instalado) y caen a `ffmpeg`/`ffprobe` para lo que `sharp` no soporta (video). No afectan la velocidad de la conexión ni del envío de mensajes — son solo utilidades de conveniencia para procesar archivos.
+
 ### Ubicación y contactos
 
 ```ts
@@ -239,7 +263,7 @@ await sock.sendMessage(jid, {
 })
 ```
 
-### Encuestas, reacciones y botones
+### Encuestas, reacciones y respuestas a botones
 
 ```ts
 // Encuesta
@@ -253,6 +277,140 @@ await sock.sendMessage(jid, { react: { text: '🔥', key: mensaje.key } })
 // Respuesta a un botón / lista (uso interno al procesar interacciones)
 await sock.sendMessage(jid, { buttonReply: { displayText: 'Sí', id: 'btn_si', index: 0 }, type: 'plain' })
 ```
+
+### Botones, listas, templates y carousel
+
+Bails puede armar botones nativos (`native_flow`), listas de selección, templates legados y carousel directamente desde `sock.sendMessage`, sin tener que construir el protobuf a mano. En todos los casos se agrega automáticamente el nodo `biz` necesario para que WhatsApp los acepte.
+
+**Botones** — soporta respuesta rápida (`id`), enlace (`url`), llamada (`call`), copiar texto (`copy`), una mini-lista embebida (`sections`), un flow crudo (`name` + `paramsJson`), o un botón ya armado con `nativeFlowInfo` (por ejemplo, reenviado de otro lado) — en ese caso se respeta tal cual viene:
+
+```ts
+await sock.sendMessage(jid, {
+  text: 'Elegí una opción',
+  footer: 'Powered by bails',
+  buttons: [
+    { text: 'Visitar sitio', url: 'https://ejemplo.com' },
+    { text: 'Llamar', call: '+50488888888' },
+    { text: 'Copiar código', copy: 'ABC123' },
+    { text: 'Responder', id: 'opt_1' }
+  ]
+})
+```
+
+> `buttons`/`sections`/`templateButtons`/`nativeFlow`/`cards` se evalúan **antes** que `text` en el armado interno del mensaje, así que combinar `text` (el cuerpo) junto con cualquiera de estos tipos funciona sin que el texto se coma al resto del contenido.
+
+**Lista de selección única:**
+
+```ts
+await sock.sendMessage(jid, {
+  description: 'Elegí un producto del catálogo',
+  title: 'Catálogo',
+  buttonText: 'Ver opciones',
+  footer: 'bails',
+  sections: [
+    {
+      title: 'Sección 1',
+      rows: [
+        { title: 'Producto A', rowId: 'a' },
+        { title: 'Producto B', rowId: 'b' }
+      ]
+    }
+  ]
+})
+```
+
+**Template buttons** (formato legado — solo se renderiza en WhatsApp Web, Desktop e iOS):
+
+```ts
+await sock.sendMessage(jid, {
+  text: 'Confirmá tu pedido',
+  templateButtons: [
+    { text: 'Sí', id: 'yes' },
+    { text: 'Visitar', url: 'https://ejemplo.com' },
+    { text: 'Llamar', call: '+50488888888' }
+  ]
+})
+```
+
+**Interactive message genérico** (`nativeFlow`), con header de imagen/video/documento:
+
+```ts
+await sock.sendMessage(jid, {
+  image: { url: 'https://ejemplo.com/foto.jpg' },
+  caption: 'Mirá esto',
+  title: 'Título',
+  subtitle: 'Subtítulo',
+  footer: 'bails',
+  nativeFlow: [
+    { text: 'Ver más', url: 'https://ejemplo.com' }
+  ]
+})
+```
+
+**Carousel** (varias cards, cada una con su propio header y botones):
+
+```ts
+await sock.sendMessage(jid, {
+  cards: [
+    { image: { url: 'https://ejemplo.com/1.jpg' }, caption: 'Carta 1', nativeFlow: [{ text: 'Comprar', id: 'buy_1' }] },
+    { image: { url: 'https://ejemplo.com/2.jpg' }, caption: 'Carta 2', nativeFlow: [{ text: 'Comprar', id: 'buy_2' }] }
+  ]
+})
+```
+
+### Mensajes crudos (smgss): pagos, productos, álbumes, eventos y más
+
+Para contenido que no tiene un atajo declarativo simple, bails incluye un dispatcher (`smgss`) que reconoce el contenido a partir de su forma y lo arma internamente. Se usa igual que cualquier otro contenido, pasándolo directo a `sock.sendMessage(jid, contenido)`:
+
+| Contenido | Qué hace |
+|---|---|
+| `{ requestPaymentMessage: {...} }` | Pedido de pago, con nota de texto o sticker adjunto opcional. |
+| `{ productMessage: {...} }` | Card de un producto individual (imagen, precio, descripción). |
+| `{ interactiveButtons: [...] }` | Botones declarativos con header de imagen/video/documento/ubicación/producto. |
+| `{ interactiveMessage: {...} }` | Interactive message armado a mano (media header + botones nativos propios). |
+| `{ interactiveMessage: { carouselMessage: {...} } }` | Carousel armado a mano, con cards en formato de proto crudo. |
+| `{ albumMessage: [...] }` o `{ album: [...] }` | Álbum: manda el contenedor y después cada foto/video asociado. |
+| `{ eventMessage: {...} }` | Evento de WhatsApp (nombre, descripción, fecha, ubicación, link para unirse). |
+| `{ pollResultMessage: {...} }` | Snapshot de resultados de una encuesta. |
+| `{ groupStatusMessage: {...} }` | Historia visible solo para un grupo puntual (distinto al estado normal). |
+
+Ejemplo de pedido de pago:
+
+```ts
+await sock.sendMessage(jid, {
+  requestPaymentMessage: {
+    amount: 50000, // en la unidad mínima de la moneda (ej. centavos)
+    currency: 'USD',
+    from: '0@s.whatsapp.net',
+    note: 'Pago por el servicio de este mes'
+  }
+})
+```
+
+Ejemplo de álbum:
+
+```ts
+await sock.sendMessage(jid, {
+  album: [
+    { image: { url: './foto1.jpg' } },
+    { image: { url: './foto2.jpg' } },
+    { video: { url: './video1.mp4' } }
+  ]
+})
+```
+
+### Mensajes "raw" (proto armado a mano)
+
+Para casos que ningún builder cubre todavía, se puede pasar el contenido del mensaje ya armado como protobuf, agregando `raw: true`. Bails no lo interpreta ni lo transforma — lo manda tal cual:
+
+```ts
+await sock.sendMessage(jid, {
+  raw: true,
+  extendedTextMessage: { text: 'Mensaje armado a mano' }
+})
+```
+
+Es una salida de emergencia para power users; para el 99% de los casos alcanza con los métodos normales de `sendMessage`.
 
 ### Editar, eliminar, reenviar y fijar
 
@@ -292,6 +450,8 @@ await sock.sendTable(
 ```ts
 await sock.sendList(jid, 'Tareas pendientes', ['Comprar pan', 'Enviar reporte', 'Llamar al cliente'])
 ```
+
+> No confundir con la lista de selección de WhatsApp (`sections`) explicada en [Botones, listas, templates y carousel](#botones-listas-templates-y-carousel) — `sendList` arma un mensaje enriquecido de solo lectura, no una lista interactiva con opciones seleccionables.
 
 **`sendCodeBlock`** — envía código con resaltado de sintaxis (soporta `javascript`, `typescript`, `python`, entre otros):
 
@@ -353,8 +513,9 @@ await sock.sendStatusWhatsApp(
 )
 ```
 
-- Si se pasa un JID de grupo, se les notifica automáticamente a todos sus participantes.
-- Si no se pasa ningún JID, el estado se publica igual, pero sin generar ninguna notificación de mención a otros contactos.
+- Si se pasa un JID de **contacto individual**, recibe la notificación de mención de estado como corresponde a un chat privado.
+- Si se pasa un JID de **grupo**, el grupo entero recibe una única notificación de mención de estado a nivel de grupo (no se le manda una notificación repetida a cada miembro por separado).
+- Si no se pasa ningún JID, el estado no se publica ya que requiere pasar las menciones necesarias.
 - Para contenido multimedia (imagen, video, audio) en el estado, se pueden combinar los mismos campos que en `sendMessage` (`image`, `video`, `audio`), y bails ajusta automáticamente el color de fondo y la fuente cuando corresponde.
 
 ### Recibos, lectura y presencia
