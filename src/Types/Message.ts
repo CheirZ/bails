@@ -370,7 +370,8 @@ export type WACarouselCard = {
 	thumbnail?: WAMediaUpload
 	audioFooter?: WAMediaUpload
 	nativeFlow?: WAButtonContent[]
-} & AnyMediaMessageContent
+} & AnyMediaMessageContent &
+	Contextable
 
 export type WAStickerPackSticker = {
 	sticker: WAMediaUpload
