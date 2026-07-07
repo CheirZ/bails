@@ -896,11 +896,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 				msg.messageStubType = WAMessageStubType[stubType as keyof typeof WAMessageStubType]
 
 				const participants = getBinaryNodeChildren(child, 'participant').map(({ attrs }) => {
-					// TODO: Store LID MAPPINGS
+					const isLid = isLidUser(attrs.jid)
+					const hasPn = isPnUser(attrs.phone_number)
 					return {
-						id: attrs.jid!,
-						phoneNumber: isLidUser(attrs.jid) && isPnUser(attrs.phone_number) ? attrs.phone_number : undefined,
-						lid: isPnUser(attrs.jid) && isLidUser(attrs.lid) ? attrs.lid : undefined,
+						id: isLid && hasPn ? attrs.phone_number! : attrs.jid!,
+						phoneNumber: isLid && hasPn ? attrs.phone_number : undefined,
+						lid: isLid ? attrs.jid : isPnUser(attrs.jid) && isLidUser(attrs.lid) ? attrs.lid : undefined,
 						username: attrs.participant_username || attrs.username || undefined,
 						admin: (attrs.type || null) as GroupParticipant['admin']
 					}
