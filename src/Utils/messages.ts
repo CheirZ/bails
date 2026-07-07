@@ -778,10 +778,6 @@ export const generateWAMessageContent = async (
 			}
 
 			Object.assign(interactiveMessage.header || (interactiveMessage.header = {}), media)
-			if (interactiveMessage.header?.videoMessage) {
-				interactiveMessage.gifPlayback = interactiveMessage.header.videoMessage.gifPlayback
-				delete interactiveMessage.header.videoMessage.gifPlayback
-			}
 		}
 
 		if ((message as any).audioFooter) {
@@ -824,6 +820,10 @@ export const generateWAMessageContent = async (
 							carouselCard.footer = { audioMessage, hasMediaAttachment: true }
 						} else if (card.footer) {
 							carouselCard.footer = { text: card.footer }
+						}
+
+						if (card.contextInfo) {
+							carouselCard.contextInfo = card.contextInfo
 						}
 
 						return carouselCard
