@@ -32,6 +32,8 @@ import {
 	extractDeviceJids,
 	generateCodeBlockContent,
 	generateLatexContent,
+	generateLatexImageContent,
+	generateLatexInlineImageContent,
 	generateListContent,
 	generateMessageIDV2,
 	generateParticipantHashV2,
@@ -49,8 +51,10 @@ import {
 	MessageRetryManager,
 	normalizeMessageContent,
 	parseAndInjectE2ESessions,
+	type RenderLatexToPng,
 	type RichContentOptions,
 	resizeImage,
+	type UploadFn,
 	unixTimestampSeconds
 } from '../Utils'
 import { getUrlInfo } from '../Utils/link-preview'
@@ -1588,6 +1592,30 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			options: RichContentOptions & { text?: string; expressions: LatexExpressionInput[] }
 		) => {
 			const { message, messageId } = generateLatexContent(quoted, options)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+
+		sendLatexImage: async (
+			jid: string,
+			quoted: WAMessage | undefined,
+			options: RichContentOptions & { text?: string; expressions: LatexExpressionInput[] },
+			renderLatexToPng: RenderLatexToPng,
+			uploadFn: UploadFn
+		) => {
+			const { message, messageId } = await generateLatexImageContent(quoted, options, uploadFn, renderLatexToPng)
+			await relayMessage(jid, message, { messageId })
+			return { message, messageId }
+		},
+
+		sendLatexInlineImage: async (
+			jid: string,
+			quoted: WAMessage | undefined,
+			options: RichContentOptions & { text?: string; expressions: LatexExpressionInput[] },
+			renderLatexToPng: RenderLatexToPng,
+			uploadFn: UploadFn
+		) => {
+			const { message, messageId } = await generateLatexInlineImageContent(quoted, options, uploadFn, renderLatexToPng)
 			await relayMessage(jid, message, { messageId })
 			return { message, messageId }
 		},
