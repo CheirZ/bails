@@ -15,6 +15,7 @@ import type {
 	WABusinessProfile,
 	WAMediaUpload,
 	WAMessage,
+	WAMessageKey,
 	WAPatchCreate,
 	WAPatchName,
 	WAPresence,
@@ -282,6 +283,28 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		}
 
 		return botList
+	}
+
+	/**
+	 * Resolve the @lid identity for a user JID (or vice versa) via a USync lid protocol query
+	 */
+	const getLidUser = async (jid: string) => {
+		if (!jid) {
+			throw new Boom('Please input a jid user')
+		}
+
+		if (!isPnUser(jid) && !isLidUser(jid)) {
+			throw new Boom('Invalid JID: Not a user JID!')
+		}
+
+		const targetJid = jid.includes('@') ? jid : `${jid}@s.whatsapp.net`
+
+		const usyncQuery = new USyncQuery().withLIDProtocol().withUser(new USyncUser().withId(targetJid))
+
+		const result = await sock.executeUSyncQuery(usyncQuery)
+		if (result) {
+			return result.list
+		}
 	}
 
 	const fetchStatus = async (...jids: string[]) => {
@@ -1090,6 +1113,19 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	}
 
 	/**
+	 * Delete a single message from a chat's history (clears it for this account only)
+	 */
+	const clearMessage = (jid: string, key: WAMessageKey, timeStamp: number) => {
+		return chatModify(
+			{
+				delete: true,
+				lastMessages: [{ key, messageTimestamp: timeStamp }]
+			},
+			jid
+		)
+	}
+
+	/**
 	 * Enable/Disable link preview privacy, not related to baileys link preview generation
 	 */
 	const updateDisableLinkPreviewsPrivacy = (isPreviewsDisabled: boolean) => {
@@ -1605,6 +1641,8 @@ export const makeChatsSocket = (config: SocketConfig) => {
 		removeMessageLabel,
 		star,
 		addOrEditQuickReply,
-		removeQuickReply
+		removeQuickReply,
+		clearMessage,
+		getLidUser
 	}
 }
