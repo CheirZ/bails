@@ -11,6 +11,7 @@ export type ConnectionWatchdogOptions = {
 	logger?: ILogger
 	livenessCheckIntervalMs?: number
 	zombieThresholdMs?: number
+	pingFn?: () => Promise<void>
 }
 
 const RATE_LIMIT_STYLE_CODES = new Set<number>([
@@ -24,7 +25,10 @@ const TERMINAL_CODES = new Set<number>([DisconnectReason.loggedOut, DisconnectRe
 
 export class ConnectionWatchdog {
 	private consecutiveFailures = 0
-	private readonly opts: Required<Omit<ConnectionWatchdogOptions, 'logger'>> & { logger?: ILogger }
+	private readonly opts: Required<Omit<ConnectionWatchdogOptions, 'logger' | 'pingFn'>> & {
+		logger?: ILogger
+		pingFn?: () => Promise<void>
+	}
 	private livenessTimer?: NodeJS.Timeout
 	private lastAliveAt = Date.now()
 
@@ -36,7 +40,8 @@ export class ConnectionWatchdog {
 			rateLimitCooldownMs: options.rateLimitCooldownMs ?? 60_000,
 			livenessCheckIntervalMs: options.livenessCheckIntervalMs ?? 30_000,
 			zombieThresholdMs: options.zombieThresholdMs ?? 90_000,
-			logger: options.logger
+			logger: options.logger,
+			pingFn: options.pingFn
 		}
 	}
 
@@ -73,10 +78,22 @@ export class ConnectionWatchdog {
 		this.stopLivenessCheck()
 		if (this.opts.livenessCheckIntervalMs <= 0) return
 
-		this.livenessTimer = setInterval(() => {
+		this.livenessTimer = setInterval(async () => {
 			const idleFor = Date.now() - this.lastAliveAt
-			if (idleFor > this.opts.zombieThresholdMs) {
+			if (idleFor <= this.opts.zombieThresholdMs) return
+
+			if (!this.opts.pingFn) {
 				this.opts.logger?.error({ idleFor }, 'connection watchdog: no activity for a while')
+				this.stopLivenessCheck()
+				onZombie()
+				return
+			}
+
+			try {
+				await this.opts.pingFn()
+				this.lastAliveAt = Date.now()
+			} catch (err) {
+				this.opts.logger?.error({ idleFor, err }, 'connection watchdog: ping failed, socket appears dead')
 				this.stopLivenessCheck()
 				onZombie()
 			}
