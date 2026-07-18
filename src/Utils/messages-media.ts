@@ -33,6 +33,61 @@ const getTmpFilesDirectory = () => tmpdir()
 
 let imageProcessingLibrary: { sharp?: any; napi?: any; jimp?: any } | undefined
 
+export async function transcodeAudioToOpus(input: string | Buffer): Promise<string> {
+	const outputPath = join(tmpdir(), 'ptt-' + generateMessageIDV2() + '.ogg')
+	let inputPath = input
+	let tempInputPath: string | undefined
+
+	try {
+		if (Buffer.isBuffer(input)) {
+			tempInputPath = join(tmpdir(), 'ptt-src-' + generateMessageIDV2())
+			await fs.writeFile(tempInputPath, input)
+			inputPath = tempInputPath
+		}
+
+		await new Promise<void>((resolve, reject) => {
+			const args = [
+				'-i',
+				inputPath as string,
+				'-y',
+				'-vn', // ignore any embedded video/cover art (e.g. mp3 with artwork)
+				'-ac',
+				'1', // mono
+				'-ar',
+				'16000', // 16kHz - exact spec of WhatsApp's native PTT
+				'-c:a',
+				'libopus', // real opus codec, not just the mimetype label
+				'-b:a',
+				'32k',
+				'-f',
+				'ogg',
+				outputPath
+			]
+			const child = spawn('ffmpeg', args)
+
+			let stderr = ''
+			child.stderr?.on('data', chunk => {
+				stderr += chunk
+			})
+
+			child.on('error', reject)
+			child.on('close', code => {
+				if (code === 0) {
+					resolve()
+				} else {
+					reject(new Boom(`ffmpeg exited with code ${code}`, { data: stderr }))
+				}
+			})
+		})
+
+		return outputPath
+	} finally {
+		if (tempInputPath) {
+			await fs.unlink(tempInputPath).catch(() => {})
+		}
+	}
+}
+
 export const getImageProcessingLibrary = async () => {
 	if (imageProcessingLibrary) {
 		return imageProcessingLibrary
