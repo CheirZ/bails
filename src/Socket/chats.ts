@@ -1317,7 +1317,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			msg.isSystemNotification = true
 		}
 
-		if (isJidGroup(msg.key?.remoteJid) && hasGroupStatusMessage(msg)) {
+		if (isJidGroup(msg.key?.remoteJid ?? undefined) && hasGroupStatusMessage(msg)) {
 			msg.isGroupStatus = true
 		}
 
