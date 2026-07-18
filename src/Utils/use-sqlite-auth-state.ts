@@ -62,6 +62,8 @@ export async function useSqliteAuthState(
 	db.pragma('temp_store = MEMORY')
 	db.exec(CREATE_SCHEMA_SQL)
 
+	let closed = false
+
 	const stmts = {
 		credsSelect: db.prepare<[string], { value: string }>('SELECT value FROM creds WHERE key = ?'),
 		credsUpsert: db.prepare<[string, string]>(
@@ -87,6 +89,7 @@ export async function useSqliteAuthState(
 	}
 
 	const persistCreds = (creds: AuthenticationCreds) => {
+		if (closed || !db.open) return
 		stmts.credsUpsert.run(CREDS_ROW_KEY, JSON.stringify(creds, BufferJSON.replacer))
 	}
 
@@ -98,6 +101,7 @@ export async function useSqliteAuthState(
 			keys: {
 				get: async (type, ids) => {
 					const data: { [_: string]: SignalDataTypeMap[typeof type] } = {}
+					if (closed || !db.open) return data
 					for (const id of ids) {
 						const row = stmts.keySelect.get(type, id)
 						if (row) {
@@ -113,6 +117,7 @@ export async function useSqliteAuthState(
 					return data
 				},
 				set: async data => {
+					if (closed || !db.open) return
 					const writeTx = db.transaction(() => {
 						for (const category in data) {
 							for (const id in data[category as keyof SignalDataTypeMap]) {
@@ -135,6 +140,7 @@ export async function useSqliteAuthState(
 			persistCreds(creds)
 		},
 		close: () => {
+			closed = true
 			try {
 				db.pragma('wal_checkpoint(PASSIVE)')
 			} catch {}
