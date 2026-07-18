@@ -74,6 +74,18 @@ export function hasGroupStatusFlag(value: unknown, depth = 0, seenObjects: WeakS
 	return false
 }
 
+const RELEVANT_TOP_LEVEL_KEYS = new Set(WRAPPED_MESSAGE_KEYS)
+
+function hasRelevantTopLevelKey(message: Record<string, any>): boolean {
+	for (const key of Object.keys(message)) {
+		if (RELEVANT_TOP_LEVEL_KEYS.has(key)) {
+			return true
+		}
+	}
+
+	return false
+}
+
 export function getCurrentMessageContentVariants(
 	message: unknown,
 	depth = 0,
@@ -96,5 +108,15 @@ export function getCurrentMessageContentVariants(
 }
 
 export function hasGroupStatusMessage(webMessage: { message?: unknown } | undefined): boolean {
-	return getCurrentMessageContentVariants(webMessage?.message).some(message => hasGroupStatusFlag(message))
+	const message = webMessage?.message
+
+	if (!canScanObject(message)) {
+		return false
+	}
+
+	if (!hasRelevantTopLevelKey(message)) {
+		return false
+	}
+
+	return getCurrentMessageContentVariants(message).some(variant => hasGroupStatusFlag(variant))
 }
