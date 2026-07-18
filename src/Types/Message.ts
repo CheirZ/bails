@@ -19,7 +19,6 @@ export type WAMessage = proto.IWebMessageInfo & {
 	category?: string
 	retryCount?: number
 	isSystemNotification?: boolean
-	isGroupStatus?: boolean
 }
 export type WAMessageContent = proto.IMessage
 export type WAContactMessage = proto.Message.IContactMessage
