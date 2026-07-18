@@ -40,7 +40,6 @@ import {
 	extractSyncdPatches,
 	generateProfilePicture,
 	getHistoryMsg,
-	hasGroupStatusMessage,
 	isAppStateSyncIrrecoverable,
 	isMissingKeyError,
 	MAX_SYNC_ATTEMPTS,
@@ -56,7 +55,6 @@ import {
 	getBinaryNodeChildren,
 	isHostedLidUser,
 	isHostedPnUser,
-	isJidGroup,
 	isLidUser,
 	isPnUser,
 	jidDecode,
@@ -1315,10 +1313,6 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	const upsertMessage = ev.createBufferedFunction(async (msg: WAMessage, type: MessageUpsertType) => {
 		if (isWASystemNotification(msg)) {
 			msg.isSystemNotification = true
-		}
-
-		if (isJidGroup(msg.key?.remoteJid ?? undefined) && hasGroupStatusMessage(msg)) {
-			msg.isGroupStatus = true
 		}
 
 		ev.emit('messages.upsert', { messages: [msg], type })
