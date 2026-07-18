@@ -204,19 +204,6 @@ export const sharedLidPhoneCache = {
 	}
 }
 
-const BOT_MAP_STATIC = new Map<string, string>([
-	['867051314767696', '13135550002'],
-	['1061492271844689', '13135550005'],
-	['245886058483988', '13135550009'],
-	['3509905702656130', '13135550012'],
-	['1059680132034576', '13135550013'],
-	['715681030623646', '13135550014'],
-	['1644971366323052', '13135550015'],
-	['582497970646566', '13135550019'],
-	['645459357769306', '13135550022'],
-	['294997126699143', '13135550023']
-])
-
 export const lidToJid = (jid: string | undefined): string | undefined => {
 	try {
 		if (!jid || typeof jid !== 'string') return jid
@@ -226,13 +213,8 @@ export const lidToJid = (jid: string | undefined): string | undefined => {
 
 		let result = jid
 		if (jid.endsWith('@lid')) {
-			const lidPart = jid.replace('@lid', '')
-			if (BOT_MAP_STATIC.has(lidPart)) {
-				result = BOT_MAP_STATIC.get(lidPart) + S_WHATSAPP_NET
-			} else {
-				const phoneFromCache = sharedLidPhoneCache.getPhoneForLid(jid)
-				if (phoneFromCache) result = phoneFromCache
-			}
+			const phoneFromCache = sharedLidPhoneCache.getPhoneForLid(jid)
+			if (phoneFromCache) result = phoneFromCache
 		}
 
 		if (result !== jid) lidToJidCache.set(jid, result)
