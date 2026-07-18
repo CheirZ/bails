@@ -63,6 +63,15 @@ export type BaileysEventMap = {
 	'messages.delete': { keys: WAMessageKey[] } | { jid: string; all: true }
 	'messages.update': WAMessageUpdate[]
 	'messages.media-update': { key: WAMessageKey; media?: { ciphertext: Uint8Array; iv: Uint8Array }; error?: Boom }[]
+	'messages.decrypt-failed': {
+		key: WAMessageKey
+		remoteJid: string | undefined | null
+		participant: string | undefined | null
+		messageId: string | undefined | null
+		isPreKeyError: boolean
+		errorMessage: string
+		timestamp: unknown
+	}
 	/**
 	 * add/update the given messages. If they were received while the connection was online,
 	 * the update will have type: "notify"

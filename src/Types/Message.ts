@@ -19,6 +19,7 @@ export type WAMessage = proto.IWebMessageInfo & {
 	category?: string
 	retryCount?: number
 	isSystemNotification?: boolean
+	isGroupStatus?: boolean
 }
 export type WAMessageContent = proto.IMessage
 export type WAContactMessage = proto.Message.IContactMessage
@@ -212,6 +213,10 @@ export type AnyMediaMessageContent = (
 			sticker: WAMediaUpload
 			isAnimated?: boolean
 		    isLottie?: boolean
+			isAvatar?: boolean
+			stickerPackId?: string
+			stickerPackName?: string
+			stickerAuthor?: string
 	  } & WithDimensions)
 	| ({
 			document: WAMediaUpload
