@@ -1483,6 +1483,22 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 	}
 
 	const messagesSock = {
+		...sock,
+		userDevicesCache,
+		devicesMutex,
+		issuePrivacyTokens,
+		assertSessions,
+		relayMessage,
+		sendStatusWhatsApp,
+		sendReceipt,
+		sendReceipts,
+		readMessages,
+		refreshMediaConn,
+		resize: resizeImage,
+		convert: convertMedia,
+		toSticker: imageToWebpSticker,
+		compress: compressMedia,
+		metadata: getMediaMetadata,
 		// Function (not getter) so the spread in chats.ts preserves the live closure binding.
 		getMediaHost: () => mediaHost,
 		waUploadToServer,
@@ -1749,9 +1765,10 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const messageScheduler = new MessageScheduler(messagesSock.sendMessage, {
-		logger: config.logger
-	})
+	const messageScheduler = new MessageScheduler(
+		(jid, content, options) => messagesSock.sendMessage(jid, content, options) as Promise<WAMessage | undefined>,
+		{ logger: config.logger }
+	)
 
 	return {
 		...messagesSock,
