@@ -1481,7 +1481,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		return msg as WAMessage
 	}
 
-	const messagesSock = {
+	return {
 		...sock,
 		userDevicesCache,
 		devicesMutex,
@@ -1762,9 +1762,5 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				return fullMsg
 			}
 		}
-	}
-
-	return {
-		...messagesSock
 	}
 }
