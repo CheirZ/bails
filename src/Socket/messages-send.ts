@@ -49,7 +49,6 @@ import {
 	imageToWebpSticker,
 	type LatexExpressionInput,
 	MessageRetryManager,
-	MessageScheduler,
 	normalizeMessageContent,
 	parseAndInjectE2ESessions,
 	type RenderLatexToPng,
@@ -699,7 +698,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		}
 
 		await authState.keys.transaction(async () => {
-			const mediaType = getMediaType(message)
+			const mediaType = getMediaType(normalizeMessageContent(message) || message)
 			if (mediaType) {
 				extraAttrs['mediatype'] = mediaType
 			}
@@ -1765,18 +1764,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const messageScheduler = new MessageScheduler(
-		(jid, content, options) => messagesSock.sendMessage(jid, content, options) as Promise<WAMessage | undefined>,
-		{ logger: config.logger }
-	)
-
 	return {
-		...messagesSock,
-		messageScheduler,
-		scheduleMessage: messageScheduler.schedule.bind(messageScheduler),
-		scheduleMessageDelay: messageScheduler.scheduleDelay.bind(messageScheduler),
-		cancelScheduledMessage: messageScheduler.cancel.bind(messageScheduler),
-		cancelScheduledMessagesForJid: messageScheduler.cancelForJid.bind(messageScheduler),
-		getPendingScheduledMessages: messageScheduler.getPending.bind(messageScheduler)
+		...messagesSock
 	}
 }

@@ -56,6 +56,7 @@ import {
 	getBinaryNodeChildren,
 	isHostedLidUser,
 	isHostedPnUser,
+	isJidGroup,
 	isLidUser,
 	isPnUser,
 	jidDecode,
@@ -1316,7 +1317,7 @@ export const makeChatsSocket = (config: SocketConfig) => {
 			msg.isSystemNotification = true
 		}
 
-		if (hasGroupStatusMessage(msg)) {
+		if (isJidGroup(msg.key?.remoteJid) && hasGroupStatusMessage(msg)) {
 			msg.isGroupStatus = true
 		}
 
