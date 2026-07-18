@@ -128,41 +128,6 @@ export const transferDevice = (fromJid: string, toJid: string) => {
 }
 
 
-type LRUEntry = { value: string; expires: number }
-
-class SimpleLRU {
-	private map = new Map<string, LRUEntry>()
-
-	constructor(
-		private maxSize: number,
-		private ttlMs: number
-	) {}
-
-	get(key: string): string | undefined {
-		const entry = this.map.get(key)
-		if (!entry) return undefined
-		if (Date.now() > entry.expires) {
-			this.map.delete(key)
-			return undefined
-		}
-
-		this.map.delete(key)
-		this.map.set(key, entry)
-		return entry.value
-	}
-
-	set(key: string, value: string) {
-		this.map.delete(key)
-		this.map.set(key, { value, expires: Date.now() + this.ttlMs })
-		if (this.map.size > this.maxSize) {
-			const lru = this.map.keys().next().value
-			if (lru) this.map.delete(lru)
-		}
-	}
-}
-
-const lidToJidCache = new SimpleLRU(2000, 5 * 60 * 1000)
-
 const _sharedLidPhoneMap = new Map<string, string>()
 const SHARED_MAP_MAX_SIZE = 3000
 
@@ -183,7 +148,6 @@ export const sharedLidPhoneCache = {
 
 		_sharedLidPhoneMap.set(lid, phoneJid)
 		_sharedLidPhoneMap.set(phoneJid, lid)
-		lidToJidCache.set(lid, phoneJid)
 	},
 	get(key: string | undefined): string | undefined {
 		if (!key) return undefined
@@ -202,67 +166,4 @@ export const sharedLidPhoneCache = {
 	get size() {
 		return _sharedLidPhoneMap.size
 	}
-}
-
-export const lidToJid = (jid: string | undefined): string | undefined => {
-	try {
-		if (!jid || typeof jid !== 'string') return jid
-
-		const cached = lidToJidCache.get(jid)
-		if (cached) return cached
-
-		let result = jid
-		if (jid.endsWith('@lid')) {
-			const phoneFromCache = sharedLidPhoneCache.getPhoneForLid(jid)
-			if (phoneFromCache) result = phoneFromCache
-		}
-
-		if (result !== jid) lidToJidCache.set(jid, result)
-		return result
-	} catch {
-		return jid
-	}
-}
-
-export const resolveJid = (jid: string | undefined): string | undefined => {
-	if (typeof jid === 'string' && jid.endsWith('@lid')) return lidToJid(jid)
-	return jid
-}
-
-export const normalizeJid = (jid: string | undefined): string | undefined => {
-	if (!jid || typeof jid !== 'string') return jid
-	if (jid.startsWith('@')) return jid
-	if (jid.endsWith('@lid')) return lidToJid(jid)
-	if (jid.endsWith(S_WHATSAPP_NET) || jid.endsWith('@g.us') || jid.endsWith('@newsletter')) return jid
-	if (/^\d+$/.test(jid)) return jid + S_WHATSAPP_NET
-	if (jid.endsWith('@c.us')) return jid.replace('@c.us', S_WHATSAPP_NET)
-	return jid
-}
-
-export const resolveAll = (jid: string | undefined): { jid: string | undefined; lid: string | undefined } => {
-	if (!jid || typeof jid !== 'string') return { jid, lid: undefined }
-
-	if (jid.endsWith('@lid')) {
-		const resolved = lidToJid(jid)
-		return { jid: resolved !== jid ? resolved : undefined, lid: jid }
-	}
-
-	if (jid.endsWith(S_WHATSAPP_NET)) {
-		return { jid, lid: sharedLidPhoneCache.getLidForPhone(jid) }
-	}
-
-	return { jid: normalizeJid(jid), lid: undefined }
-}
-
-const VALID_JID_SERVERS = new Set(['s.whatsapp.net', 'g.us', 'lid', 'broadcast', 'newsletter', 'c.us', 'bot', 'hosted', 'hosted.lid'])
-
-export const validateJid = (jid: string | undefined): { isValid: boolean; error: string | null } => {
-	if (!jid || typeof jid !== 'string') return { isValid: false, error: 'JID is null or not a string' }
-	if (!jid.includes('@')) return { isValid: false, error: 'Missing @ separator' }
-
-	const [user, server] = jid.split('@')
-	if (!user) return { isValid: false, error: 'Empty user part' }
-	if (!server || !VALID_JID_SERVERS.has(server)) return { isValid: false, error: `Unknown server: ${server}` }
-
-	return { isValid: true, error: null }
 }
