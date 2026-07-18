@@ -48,7 +48,7 @@ CREATE INDEX IF NOT EXISTS signal_keys_type_idx ON signal_keys(type);
 
 export async function useSqliteAuthState(
 	opts: SqliteAuthStateOptions
-): Promise<{ state: AuthenticationState; saveCreds: () => void }> {
+): Promise<{ state: AuthenticationState; saveCreds: () => void; close: () => void }> {
 	let db: SqliteDatabase
 	if ('database' in opts) {
 		db = opts.database
@@ -57,10 +57,9 @@ export async function useSqliteAuthState(
 		db = new Database(opts.dbPath)
 	}
 
-	// WAL mode allows concurrent reads alongside a single writer; matches
-	// what SQLite recommends for read-heavy workloads with sporadic writes.
 	db.pragma('journal_mode = WAL')
 	db.pragma('synchronous = NORMAL')
+	db.pragma('temp_store = MEMORY')
 	db.exec(CREATE_SCHEMA_SQL)
 
 	const stmts = {
@@ -134,6 +133,14 @@ export async function useSqliteAuthState(
 		},
 		saveCreds: () => {
 			persistCreds(creds)
+		},
+		close: () => {
+			try {
+				db.pragma('wal_checkpoint(PASSIVE)')
+			} catch {}
+			try {
+				db.close()
+			} catch {}
 		}
-	}
+    }
 }
