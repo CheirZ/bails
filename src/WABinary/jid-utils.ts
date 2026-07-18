@@ -126,3 +126,161 @@ export const transferDevice = (fromJid: string, toJid: string) => {
 	const { server, user } = jidDecode(toJid)!
 	return jidEncode(user, server, deviceId)
 }
+
+
+type LRUEntry = { value: string; expires: number }
+
+class SimpleLRU {
+	private map = new Map<string, LRUEntry>()
+
+	constructor(
+		private maxSize: number,
+		private ttlMs: number
+	) {}
+
+	get(key: string): string | undefined {
+		const entry = this.map.get(key)
+		if (!entry) return undefined
+		if (Date.now() > entry.expires) {
+			this.map.delete(key)
+			return undefined
+		}
+
+		this.map.delete(key)
+		this.map.set(key, entry)
+		return entry.value
+	}
+
+	set(key: string, value: string) {
+		this.map.delete(key)
+		this.map.set(key, { value, expires: Date.now() + this.ttlMs })
+		if (this.map.size > this.maxSize) {
+			const lru = this.map.keys().next().value
+			if (lru) this.map.delete(lru)
+		}
+	}
+}
+
+const lidToJidCache = new SimpleLRU(2000, 5 * 60 * 1000)
+
+const _sharedLidPhoneMap = new Map<string, string>()
+const SHARED_MAP_MAX_SIZE = 3000
+
+export const sharedLidPhoneCache = {
+	set(lid: string | undefined, phoneJid: string | undefined) {
+		if (!lid || !phoneJid || typeof lid !== 'string' || typeof phoneJid !== 'string') return
+		if (!phoneJid.includes('@')) phoneJid = phoneJid + S_WHATSAPP_NET
+
+		if (_sharedLidPhoneMap.size > SHARED_MAP_MAX_SIZE * 2) {
+			const it = _sharedLidPhoneMap.keys()
+			const toRemove = Math.floor(_sharedLidPhoneMap.size * 0.25)
+			for (let i = 0; i < toRemove; i++) {
+				const k = it.next().value
+				if (k === undefined) break
+				_sharedLidPhoneMap.delete(k)
+			}
+		}
+
+		_sharedLidPhoneMap.set(lid, phoneJid)
+		_sharedLidPhoneMap.set(phoneJid, lid)
+		lidToJidCache.set(lid, phoneJid)
+	},
+	get(key: string | undefined): string | undefined {
+		if (!key) return undefined
+		return _sharedLidPhoneMap.get(key)
+	},
+	getLidForPhone(phoneJid: string | undefined): string | undefined {
+		if (!phoneJid) return undefined
+		const val = _sharedLidPhoneMap.get(phoneJid)
+		return val && val.endsWith('@lid') ? val : undefined
+	},
+	getPhoneForLid(lid: string | undefined): string | undefined {
+		if (!lid) return undefined
+		const val = _sharedLidPhoneMap.get(lid)
+		return val && val.endsWith(S_WHATSAPP_NET) ? val : undefined
+	},
+	get size() {
+		return _sharedLidPhoneMap.size
+	}
+}
+
+const BOT_MAP_STATIC = new Map<string, string>([
+	['867051314767696', '13135550002'],
+	['1061492271844689', '13135550005'],
+	['245886058483988', '13135550009'],
+	['3509905702656130', '13135550012'],
+	['1059680132034576', '13135550013'],
+	['715681030623646', '13135550014'],
+	['1644971366323052', '13135550015'],
+	['582497970646566', '13135550019'],
+	['645459357769306', '13135550022'],
+	['294997126699143', '13135550023']
+])
+
+export const lidToJid = (jid: string | undefined): string | undefined => {
+	try {
+		if (!jid || typeof jid !== 'string') return jid
+
+		const cached = lidToJidCache.get(jid)
+		if (cached) return cached
+
+		let result = jid
+		if (jid.endsWith('@lid')) {
+			const lidPart = jid.replace('@lid', '')
+			if (BOT_MAP_STATIC.has(lidPart)) {
+				result = BOT_MAP_STATIC.get(lidPart) + S_WHATSAPP_NET
+			} else {
+				const phoneFromCache = sharedLidPhoneCache.getPhoneForLid(jid)
+				if (phoneFromCache) result = phoneFromCache
+			}
+		}
+
+		if (result !== jid) lidToJidCache.set(jid, result)
+		return result
+	} catch {
+		return jid
+	}
+}
+
+export const resolveJid = (jid: string | undefined): string | undefined => {
+	if (typeof jid === 'string' && jid.endsWith('@lid')) return lidToJid(jid)
+	return jid
+}
+
+export const normalizeJid = (jid: string | undefined): string | undefined => {
+	if (!jid || typeof jid !== 'string') return jid
+	if (jid.startsWith('@')) return jid
+	if (jid.endsWith('@lid')) return lidToJid(jid)
+	if (jid.endsWith(S_WHATSAPP_NET) || jid.endsWith('@g.us') || jid.endsWith('@newsletter')) return jid
+	if (/^\d+$/.test(jid)) return jid + S_WHATSAPP_NET
+	if (jid.endsWith('@c.us')) return jid.replace('@c.us', S_WHATSAPP_NET)
+	return jid
+}
+
+export const resolveAll = (jid: string | undefined): { jid: string | undefined; lid: string | undefined } => {
+	if (!jid || typeof jid !== 'string') return { jid, lid: undefined }
+
+	if (jid.endsWith('@lid')) {
+		const resolved = lidToJid(jid)
+		return { jid: resolved !== jid ? resolved : undefined, lid: jid }
+	}
+
+	if (jid.endsWith(S_WHATSAPP_NET)) {
+		return { jid, lid: sharedLidPhoneCache.getLidForPhone(jid) }
+	}
+
+	return { jid: normalizeJid(jid), lid: undefined }
+}
+
+const VALID_JID_SERVERS = new Set(['s.whatsapp.net', 'g.us', 'lid', 'broadcast', 'newsletter', 'c.us', 'bot', 'hosted', 'hosted.lid'])
+
+export const validateJid = (jid: string | undefined): { isValid: boolean; error: string | null } => {
+	if (!jid || typeof jid !== 'string') return { isValid: false, error: 'JID is null or not a string' }
+	if (!jid.includes('@')) return { isValid: false, error: 'Missing @ separator' }
+
+	const [user, server] = jid.split('@')
+	if (!user) return { isValid: false, error: 'Empty user part' }
+	if (!server || !VALID_JID_SERVERS.has(server)) return { isValid: false, error: `Unknown server: ${server}` }
+
+	return { isValid: true, error: null }
+}
