@@ -1672,6 +1672,17 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 				// message failed to decrypt
 				if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT && msg.category !== 'peer') {
+					const cipherErrorText = msg?.messageStubParameters?.[0] || ''
+					ev.emit('messages.decrypt-failed', {
+						key: msg.key,
+						remoteJid: msg.key?.remoteJid,
+						participant: msg.key?.participant,
+						messageId: msg.key?.id,
+						isPreKeyError: cipherErrorText.includes('PreKey'),
+						errorMessage: cipherErrorText,
+						timestamp: msg.messageTimestamp
+					})
+
 					if (msg?.messageStubParameters?.[0] === MISSING_KEYS_ERROR_TEXT) {
 						acked = true
 						return sendMessageAck(node, NACK_REASONS.ParsingError)

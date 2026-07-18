@@ -40,6 +40,7 @@ import {
 	extractSyncdPatches,
 	generateProfilePicture,
 	getHistoryMsg,
+	hasGroupStatusMessage,
 	isAppStateSyncIrrecoverable,
 	isMissingKeyError,
 	MAX_SYNC_ATTEMPTS,
@@ -1313,6 +1314,10 @@ export const makeChatsSocket = (config: SocketConfig) => {
 	const upsertMessage = ev.createBufferedFunction(async (msg: WAMessage, type: MessageUpsertType) => {
 		if (isWASystemNotification(msg)) {
 			msg.isSystemNotification = true
+		}
+
+		if (hasGroupStatusMessage(msg)) {
+			msg.isGroupStatus = true
 		}
 
 		ev.emit('messages.upsert', { messages: [msg], type })

@@ -49,6 +49,7 @@ import {
 	imageToWebpSticker,
 	type LatexExpressionInput,
 	MessageRetryManager,
+	MessageScheduler,
 	normalizeMessageContent,
 	parseAndInjectE2ESessions,
 	type RenderLatexToPng,
@@ -1481,23 +1482,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		return msg as WAMessage
 	}
 
-	return {
-		...sock,
-		userDevicesCache,
-		devicesMutex,
-		issuePrivacyTokens,
-		assertSessions,
-		relayMessage,
-		sendStatusWhatsApp,
-		sendReceipt,
-		sendReceipts,
-		readMessages,
-		refreshMediaConn,
-		resize: resizeImage,
-		convert: convertMedia,
-		toSticker: imageToWebpSticker,
-		compress: compressMedia,
-		metadata: getMediaMetadata,
+	const messagesSock = {
 		// Function (not getter) so the spread in chats.ts preserves the live closure binding.
 		getMediaHost: () => mediaHost,
 		waUploadToServer,
@@ -1762,5 +1747,19 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				return fullMsg
 			}
 		}
+	}
+
+	const messageScheduler = new MessageScheduler(messagesSock.sendMessage, {
+		logger: config.logger
+	})
+
+	return {
+		...messagesSock,
+		messageScheduler,
+		scheduleMessage: messageScheduler.schedule.bind(messageScheduler),
+		scheduleMessageDelay: messageScheduler.scheduleDelay.bind(messageScheduler),
+		cancelScheduledMessage: messageScheduler.cancel.bind(messageScheduler),
+		cancelScheduledMessagesForJid: messageScheduler.cancelForJid.bind(messageScheduler),
+		getPendingScheduledMessages: messageScheduler.getPending.bind(messageScheduler)
 	}
 }

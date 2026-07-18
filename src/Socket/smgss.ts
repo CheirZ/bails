@@ -543,6 +543,7 @@ export class Smgss {
 
 	async handleGroupStory(content: any, jid: string) {
 		const storyData = content.groupStatusMessage
+		const messageSecret: Buffer = storyData.messageSecret || randomBytes(32)
 		const waMsgContent = storyData.message ? storyData : await generateWAMessageContent(storyData, { upload: this.waUploadToServer } as any)
 
 		const innerMsg: any = (waMsgContent as any).message || waMsgContent
@@ -558,9 +559,19 @@ export class Smgss {
 				else if (innerMsg.audioMessage) innerMsg[msgKey].contextInfo.statusSourceType = 3
 				else if (innerMsg.extendedTextMessage) innerMsg[msgKey].contextInfo.statusSourceType = 4
 			}
+
+			if (storyData.closeFriends || storyData.audienceType !== undefined) {
+				innerMsg[msgKey].contextInfo.statusAudienceMetadata = {
+					audienceType: storyData.audienceType ?? 1
+				}
+			}
 		}
 
-		const finalMsg = { groupStatusMessageV2: { message: innerMsg } }
-		return this.relayMessage(jid, finalMsg, { messageId: generateMessageID() })
+		innerMsg.messageContextInfo = { messageSecret }
+
+		const finalMsg = { messageContextInfo: { messageSecret }, groupStatusMessageV2: { message: innerMsg } }
+		const msgId = generateMessageID()
+		await this.relayMessage(jid, finalMsg, { messageId: msgId })
+		return { key: { id: msgId, remoteJid: jid, fromMe: true }, message: finalMsg }
 	}
 }

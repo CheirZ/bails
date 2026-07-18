@@ -12,7 +12,8 @@ import {
 	isLidUser,
 	isPnUser,
 	jidEncode,
-	jidNormalizedUser
+	jidNormalizedUser,
+	sharedLidPhoneCache
 } from '../WABinary'
 import { makeChatsSocket } from './chats'
 
@@ -159,6 +160,18 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 		return meta
 	}
 
+	const resolveLidPhone = async (groupJid: string, lid: string): Promise<string | undefined> => {
+		const cached = sharedLidPhoneCache.getPhoneForLid(lid)
+		if (cached) return cached
+
+		try {
+			await groupMetadata(groupJid)
+			return sharedLidPhoneCache.getPhoneForLid(lid)
+		} catch {
+			return undefined
+		}
+	}
+
 	const groupFetchAllParticipating = async () => {
 		const result = await query({
 			tag: 'iq',
@@ -216,6 +229,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 	return {
 		...sock,
 		groupMetadata,
+		resolveLidPhone,
 		groupCreate: async (subject: string, participants: string[]) => {
 			const key = generateMessageIDV2()
 			const result = await groupQuery('@g.us', 'set', [
@@ -543,6 +557,13 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 		participants: getBinaryNodeChildren(group, 'participant').map(({ attrs }) => {
 			const isLid = isLidUser(attrs.jid)
 			const hasPn = isPnUser(attrs.phone_number)
+
+			if (isLid && hasPn) {
+				sharedLidPhoneCache.set(attrs.jid, attrs.phone_number)
+			} else if (isPnUser(attrs.jid) && isLidUser(attrs.lid)) {
+				sharedLidPhoneCache.set(attrs.lid, attrs.jid)
+			}
+
 			return {
 				id: isLid && hasPn ? attrs.phone_number! : attrs.jid!,
 				phoneNumber: isLid && hasPn ? attrs.phone_number : undefined,
