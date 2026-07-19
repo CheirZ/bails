@@ -354,25 +354,6 @@ export const makeSocket = (config: SocketConfig) => {
 		}
 	}
 
-	const getJidByUsername = async (...usernames: string[]) => {
-		const usyncQuery = new USyncQuery().withContactProtocol()
-
-		for (const raw of usernames) {
-			const username = raw.startsWith('@') ? raw.slice(1) : raw
-			usyncQuery.withUser(new USyncUser().withUsername(username))
-		}
-
-		if (usyncQuery.users.length === 0) {
-			return []
-		}
-
-		const results = await executeUSyncQuery(usyncQuery)
-
-		if (results) {
-			return results.list.filter(a => !!a.contact).map(({ contact, id }) => ({ jid: id, exists: contact as boolean }))
-		}
-	}
-
 	const pnFromLIDUSync = async (jids: string[]): Promise<LIDMapping[] | undefined> => {
 		const usyncQuery = new USyncQuery().withLIDProtocol().withContext('background')
 
@@ -1203,7 +1184,6 @@ export const makeSocket = (config: SocketConfig) => {
 		sendWAMBuffer,
 		executeUSyncQuery,
 		onWhatsApp,
-		getJidByUsername,
 		fetchAccountReachoutTimelock,
 		fetchNewChatMessageCap
 	}
