@@ -59,7 +59,6 @@ export async function useSqliteAuthState(
 
 	db.pragma('journal_mode = WAL')
 	db.pragma('synchronous = NORMAL')
-	db.pragma('temp_store = MEMORY')
 	db.exec(CREATE_SCHEMA_SQL)
 
 	let closed = false
