@@ -128,42 +128,53 @@ export const transferDevice = (fromJid: string, toJid: string) => {
 }
 
 
-const _sharedLidPhoneMap = new Map<string, string>()
-const SHARED_MAP_MAX_SIZE = 3000
+const LID_PHONE_CACHE_MAX_SIZE = 3000
 
-export const sharedLidPhoneCache = {
-	set(lid: string | undefined, phoneJid: string | undefined) {
-		if (!lid || !phoneJid || typeof lid !== 'string' || typeof phoneJid !== 'string') return
-		if (!phoneJid.includes('@')) phoneJid = phoneJid + S_WHATSAPP_NET
+export type LidPhoneCache = {
+	set(lid: string | undefined, phoneJid: string | undefined): void
+	get(key: string | undefined): string | undefined
+	getLidForPhone(phoneJid: string | undefined): string | undefined
+	getPhoneForLid(lid: string | undefined): string | undefined
+	readonly size: number
+}
 
-		if (_sharedLidPhoneMap.size > SHARED_MAP_MAX_SIZE * 2) {
-			const it = _sharedLidPhoneMap.keys()
-			const toRemove = Math.floor(_sharedLidPhoneMap.size * 0.25)
-			for (let i = 0; i < toRemove; i++) {
-				const k = it.next().value
-				if (k === undefined) break
-				_sharedLidPhoneMap.delete(k)
+export function createLidPhoneCache(): LidPhoneCache {
+	const map = new Map<string, string>()
+
+	return {
+		set(lid, phoneJid) {
+			if (!lid || !phoneJid || typeof lid !== 'string' || typeof phoneJid !== 'string') return
+			if (!phoneJid.includes('@')) phoneJid = phoneJid + S_WHATSAPP_NET
+
+			if (map.size > LID_PHONE_CACHE_MAX_SIZE * 2) {
+				const it = map.keys()
+				const toRemove = Math.floor(map.size * 0.25)
+				for (let i = 0; i < toRemove; i++) {
+					const k = it.next().value
+					if (k === undefined) break
+					map.delete(k)
+				}
 			}
-		}
 
-		_sharedLidPhoneMap.set(lid, phoneJid)
-		_sharedLidPhoneMap.set(phoneJid, lid)
-	},
-	get(key: string | undefined): string | undefined {
-		if (!key) return undefined
-		return _sharedLidPhoneMap.get(key)
-	},
-	getLidForPhone(phoneJid: string | undefined): string | undefined {
-		if (!phoneJid) return undefined
-		const val = _sharedLidPhoneMap.get(phoneJid)
-		return val && val.endsWith('@lid') ? val : undefined
-	},
-	getPhoneForLid(lid: string | undefined): string | undefined {
-		if (!lid) return undefined
-		const val = _sharedLidPhoneMap.get(lid)
-		return val && val.endsWith(S_WHATSAPP_NET) ? val : undefined
-	},
-	get size() {
-		return _sharedLidPhoneMap.size
+			map.set(lid, phoneJid)
+			map.set(phoneJid, lid)
+		},
+		get(key) {
+			if (!key) return undefined
+			return map.get(key)
+		},
+		getLidForPhone(phoneJid) {
+			if (!phoneJid) return undefined
+			const val = map.get(phoneJid)
+			return val && val.endsWith('@lid') ? val : undefined
+		},
+		getPhoneForLid(lid) {
+			if (!lid) return undefined
+			const val = map.get(lid)
+			return val && val.endsWith(S_WHATSAPP_NET) ? val : undefined
+		},
+		get size() {
+			return map.size
+		}
 	}
 }
