@@ -654,97 +654,11 @@ function hasOptionalProperty<T, K extends PropertyKey>(obj: T, key: K): obj is W
 	return typeof obj === 'object' && obj !== null && key in obj && (obj as any)[key] !== null
 }
 
-async function injectAvatarStickerExif(message: {
-	sticker: WAMediaUpload
-	stickerPackId?: string
-	stickerPackName?: string
-	stickerAuthor?: string
-}) {
-	let srcBuf: Buffer | undefined
-	const sticker = message.sticker as any
-	if (Buffer.isBuffer(sticker)) {
-		srcBuf = sticker
-	} else if (sticker?.url && !/^https?:/.test(sticker.url)) {
-		srcBuf = await (await import('fs/promises')).readFile(sticker.url)
-	}
-
-	if (!srcBuf || srcBuf.subarray(0, 4).toString() !== 'RIFF') {
-		return
-	}
-
-	const meta: Record<string, unknown> = {
-		'sticker-pack-id': message.stickerPackId || 'fba34805541446c2',
-		'sticker-pack-name': message.stickerPackName || 'Baileys',
-		'sticker-pack-publisher': message.stickerAuthor || 'WhatsApp Sticker Maker',
-		'accessibility-text': message.stickerPackName || 'Baileys',
-		'android-app-store-link': 'https://whatsapp.com',
-		'ios-app-store-link': 'https://whatsapp.com/ios',
-		'is-avatar-sticker': 1,
-		'avatar-sticker-template-id': 'whatsapp',
-		'is-ai-sticker': 1,
-		'is-avatar-country-sticker': 1,
-		'is-avatar-instant-sticker': 1,
-		'sticker-maker-source-type': 4,
-		'is-avatar-social-sticker': 1,
-		'avatar-sticker-style': 'whatsapp',
-		'is-from-user-created-pack': 1,
-		'origin-pack-id': 'whatsapp',
-		'is-text-sticker': 1
-	}
-
-	const head = Buffer.from([
-		0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16,
-		0x00, 0x00, 0x00
-	])
-	const jsonB = Buffer.from(JSON.stringify(meta), 'utf-8')
-	const exifPayload = Buffer.concat([head, jsonB])
-	exifPayload.writeUInt32LE(jsonB.length, 14)
-
-	const fourcc = Buffer.from('EXIF', 'ascii')
-	const sizeBuf = Buffer.alloc(4)
-	sizeBuf.writeUInt32LE(exifPayload.length, 0)
-	let chunk = Buffer.concat([fourcc, sizeBuf, exifPayload])
-	if (exifPayload.length % 2 === 1) chunk = Buffer.concat([chunk, Buffer.from([0x00])])
-
-	const body = srcBuf.subarray(12) // skip "RIFF" + size + "WEBP"
-	const chunks: Buffer[] = []
-	let off = 0
-	while (off + 8 <= body.length) {
-		const cc = body.subarray(off, off + 4).toString('ascii')
-		const sz = body.readUInt32LE(off + 4)
-		const total = 8 + sz + (sz % 2)
-		if (cc !== 'EXIF') {
-			chunks.push(body.subarray(off, off + total))
-		}
-
-		off += total
-	}
-
-	chunks.push(chunk)
-
-	const newBody = Buffer.concat(chunks)
-	const header = Buffer.alloc(12)
-	header.write('RIFF', 0, 'ascii')
-	header.writeUInt32LE(newBody.length + 4, 4) // +4 for "WEBP"
-	header.write('WEBP', 8, 'ascii')
-
-	message.sticker = Buffer.concat([header, newBody]) as unknown as WAMediaUpload
-}
-
 export const generateWAMessageContent = async (
 	message: AnyMessageContent,
 	options: MessageContentGenerationOptions
 ) => {
 	let m: WAMessageContent = {}
-
-	if (hasOptionalProperty(message, 'isAvatar') && message.isAvatar && hasOptionalProperty(message, 'sticker') && message.sticker) {
-		try {
-			await injectAvatarStickerExif(message as any)
-		} catch (e) {
-			options.logger?.debug('avatar exif inject failed: ' + e)
-		}
-	}
-
 	if (hasNonNullishProperty(message, 'raw')) {
 		delete (message as { raw?: boolean }).raw
 		return message as unknown as WAMessageContent
@@ -1163,12 +1077,6 @@ export const generateWAMessageContent = async (
 	
 	if (hasOptionalProperty(message, 'isLottie') && !!message.isLottie) {
 		m = { lottieStickerMessage: { message: m } }
-	}
-
-	if (hasOptionalProperty(message, 'isAvatar') && !!message.isAvatar && (m as any).stickerMessage) {
-		;(m as any).stickerMessage.isAvatar = true
-		;(m as any).stickerMessage.isAiSticker = false
-		;(m as any).stickerMessage.isAnimated = (m as any).stickerMessage.isAnimated ?? false
 	}
 
 	if (hasOptionalProperty(message, 'viewOnceV2Extension') && !!message.viewOnceV2Extension) {

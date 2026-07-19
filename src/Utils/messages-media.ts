@@ -33,7 +33,57 @@ const getTmpFilesDirectory = () => tmpdir()
 
 let imageProcessingLibrary: { sharp?: any; napi?: any; jimp?: any } | undefined
 
+let ffmpegAvailable: boolean | undefined
+async function assertFfmpegAvailable(): Promise<void> {
+	if (ffmpegAvailable !== undefined) {
+		if (!ffmpegAvailable) {
+			throw new Boom(
+				'ffmpeg is not installed or not on PATH. transcodeAudioToOpus() requires the `ffmpeg` binary to convert audio to PTT-compatible opus.',
+				{ statusCode: 0 }
+			)
+		}
+
+		return
+	}
+
+	ffmpegAvailable = await new Promise<boolean>(resolve => {
+		const check = spawn('ffmpeg', ['-version'])
+		check.on('error', () => resolve(false))
+		check.on('close', code => resolve(code === 0))
+	})
+
+	if (!ffmpegAvailable) {
+		throw new Boom(
+			'ffmpeg is not installed or not on PATH. transcodeAudioToOpus() requires the `ffmpeg` binary to convert audio to PTT-compatible opus.',
+			{ statusCode: 0 }
+		)
+	}
+}
+
+const MAX_CONCURRENT_TRANSCODES = 2
+let activeTranscodes = 0
+const transcodeQueue: Array<() => void> = []
+
+async function acquireTranscodeSlot(): Promise<void> {
+	if (activeTranscodes < MAX_CONCURRENT_TRANSCODES) {
+		activeTranscodes++
+		return
+	}
+
+	await new Promise<void>(resolve => transcodeQueue.push(resolve))
+	activeTranscodes++
+}
+
+function releaseTranscodeSlot(): void {
+	activeTranscodes--
+	const next = transcodeQueue.shift()
+	if (next) next()
+}
+
 export async function transcodeAudioToOpus(input: string | Buffer): Promise<string> {
+	await assertFfmpegAvailable()
+	await acquireTranscodeSlot()
+
 	const outputPath = join(tmpdir(), 'ptt-' + generateMessageIDV2() + '.ogg')
 	let inputPath = input
 	let tempInputPath: string | undefined
@@ -81,7 +131,11 @@ export async function transcodeAudioToOpus(input: string | Buffer): Promise<stri
 		})
 
 		return outputPath
+	} catch (err) {
+		await fs.unlink(outputPath).catch(() => {})
+		throw err
 	} finally {
+		releaseTranscodeSlot()
 		if (tempInputPath) {
 			await fs.unlink(tempInputPath).catch(() => {})
 		}
