@@ -587,7 +587,11 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const sendMessageAck = async (node: BinaryNode, errorCode?: number) => {
 		const stanza = buildAckStanza(node, errorCode, authState.creds.me!.id)
 		logger.debug({ recv: { tag: node.tag, attrs: node.attrs }, sent: stanza.attrs }, 'sent ack')
-		await sendNode(stanza)
+		try {
+			await sendNode(stanza)
+		} catch (err) {
+			logger.debug({ err, tag: node.tag, attrs: node.attrs }, 'failed to send message ack, socket likely closed')
+		}
 	}
 
 	const rejectCall = async (callId: string, callFrom: string) => {
@@ -851,7 +855,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 		switch (child?.tag) {
 			case 'create':
-				const metadata = extractGroupMetadata(child)
+				const metadata = extractGroupMetadata(child, signalRepository.lidMapping.phoneCache)
 
 				msg.messageStubType = WAMessageStubType.GROUP_CREATE
 				msg.messageStubParameters = [metadata.subject]
@@ -1672,15 +1676,20 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 				// message failed to decrypt
 				if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT && msg.category !== 'peer') {
-					const cipherErrorText = msg?.messageStubParameters?.[0] || ''
-					ev.emit('messages.decrypt-failed', {
-						key: msg.key,
-						remoteJid: msg.key?.remoteJid,
-						participant: msg.key?.participant,
-						messageId: msg.key?.id,
-						isPreKeyError: cipherErrorText.includes('PreKey'),
-						errorMessage: cipherErrorText,
-						timestamp: msg.messageTimestamp
+					setImmediate(() => {
+						try {
+							ev.emit('messages.decrypt-failed', {
+								key: msg.key,
+								remoteJid: msg.key?.remoteJid,
+								participant: msg.key?.participant,
+								messageId: msg.key?.id,
+								isPreKeyError: (msg?.messageStubParameters?.[0] || '').includes('PreKey'),
+								errorMessage: msg?.messageStubParameters?.[0] || '',
+								timestamp: msg.messageTimestamp
+							})
+						} catch (err) {
+							logger.debug({ err }, 'messages.decrypt-failed listener threw')
+						}
 					})
 
 					if (msg?.messageStubParameters?.[0] === MISSING_KEYS_ERROR_TEXT) {
