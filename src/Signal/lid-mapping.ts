@@ -1,7 +1,7 @@
 import { LRUCache } from 'lru-cache'
 import type { LIDMapping, SignalKeyStoreWithTransaction } from '../Types'
 import type { ILogger } from '../Utils/logger'
-import { createLidPhoneCache, isHostedPnUser, isLidUser, isPnUser, jidDecode, jidNormalizedUser, type LidPhoneCache, WAJIDDomains } from '../WABinary'
+import { isHostedPnUser, isLidUser, isPnUser, jidDecode, jidNormalizedUser, WAJIDDomains } from '../WABinary'
 
 export class LIDMappingStore {
 	private readonly mappingCache = new LRUCache<string, string>({
@@ -11,7 +11,6 @@ export class LIDMappingStore {
 	})
 	private readonly keys: SignalKeyStoreWithTransaction
 	private readonly logger: ILogger
-	readonly phoneCache: LidPhoneCache = createLidPhoneCache()
 
 	private pnToLIDFunc?: (jids: string[]) => Promise<LIDMapping[] | undefined>
 
@@ -43,10 +42,6 @@ export class LIDMappingStore {
 			if (!lidDecoded || !pnDecoded) continue
 
 			validatedPairs.push({ pnUser: pnDecoded.user, lidUser: lidDecoded.user })
-
-			const lidJid = isLidUser(lid) ? lid : pn
-			const pnJid = isPnUser(pn) ? pn : lid
-			this.phoneCache.set(lidJid, pnJid)
 		}
 
 		if (validatedPairs.length === 0) return
