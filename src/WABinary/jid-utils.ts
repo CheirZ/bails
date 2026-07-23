@@ -126,3 +126,55 @@ export const transferDevice = (fromJid: string, toJid: string) => {
 	const { server, user } = jidDecode(toJid)!
 	return jidEncode(user, server, deviceId)
 }
+
+
+const LID_PHONE_CACHE_MAX_SIZE = 3000
+
+export type LidPhoneCache = {
+	set(lid: string | undefined, phoneJid: string | undefined): void
+	get(key: string | undefined): string | undefined
+	getLidForPhone(phoneJid: string | undefined): string | undefined
+	getPhoneForLid(lid: string | undefined): string | undefined
+	readonly size: number
+}
+
+export function createLidPhoneCache(): LidPhoneCache {
+	const map = new Map<string, string>()
+
+	return {
+		set(lid, phoneJid) {
+			if (!lid || !phoneJid || typeof lid !== 'string' || typeof phoneJid !== 'string') return
+			if (!phoneJid.includes('@')) phoneJid = phoneJid + S_WHATSAPP_NET
+
+			if (map.size > LID_PHONE_CACHE_MAX_SIZE * 2) {
+				const it = map.keys()
+				const toRemove = Math.floor(map.size * 0.25)
+				for (let i = 0; i < toRemove; i++) {
+					const k = it.next().value
+					if (k === undefined) break
+					map.delete(k)
+				}
+			}
+
+			map.set(lid, phoneJid)
+			map.set(phoneJid, lid)
+		},
+		get(key) {
+			if (!key) return undefined
+			return map.get(key)
+		},
+		getLidForPhone(phoneJid) {
+			if (!phoneJid) return undefined
+			const val = map.get(phoneJid)
+			return val && val.endsWith('@lid') ? val : undefined
+		},
+		getPhoneForLid(lid) {
+			if (!lid) return undefined
+			const val = map.get(lid)
+			return val && val.endsWith(S_WHATSAPP_NET) ? val : undefined
+		},
+		get size() {
+			return map.size
+		}
+	}
+}
