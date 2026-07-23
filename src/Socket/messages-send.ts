@@ -1409,7 +1409,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			getUrlInfo: (text: string) =>
 				getUrlInfo(text, {
 					thumbnailWidth: linkPreviewImageThumbnailWidth,
-					fetchOpts: { timeout: 3000, ...httpRequestOptions },
+					fetchOpts: { timeout: 1500, ...httpRequestOptions },
 					logger,
 					uploadImage: generateHighQualityLinkPreview ? waUploadToServer : undefined
 				}),
@@ -1669,7 +1669,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 						getUrlInfo(text, {
 							thumbnailWidth: linkPreviewImageThumbnailWidth,
 							fetchOpts: {
-								timeout: 3_000,
+								timeout: 1_500,
 								...(httpRequestOptions || {})
 							},
 							logger,

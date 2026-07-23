@@ -77,9 +77,9 @@ export const buildProfilePictureQueryContent = (
 	return [picture]
 }
 
-const USER_ID_CACHE = new Map<string, { phoneNumber: string; lid: string }>()
-
 export const makeChatsSocket = (config: SocketConfig) => {
+	const USER_ID_CACHE = new Map<string, { phoneNumber: string; lid: string }>()
+
 	const {
 		logger,
 		markOnlineOnConnect,
