@@ -52,10 +52,10 @@ export const PROCESSABLE_HISTORY_TYPES = [
 ]
 
 export const DEFAULT_CACHE_TTLS = {
-	SIGNAL_STORE: 5 * 60, // 5 minutes
+	SIGNAL_STORE: 15 * 60, // 15 minutes
 	MSG_RETRY: 60 * 60, // 1 hour
 	CALL_OFFER: 5 * 60, // 5 minutes
-	USER_DEVICES: 5 * 60 // 5 minutes
+	USER_DEVICES: 30 * 60 // 30 minutes
 }
 
 export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
@@ -80,7 +80,7 @@ export const DEFAULT_CONNECTION_CONFIG: SocketConfig = {
 	},
 	shouldIgnoreJid: () => false,
 	linkPreviewImageThumbnailWidth: 192,
-	transactionOpts: { maxCommitRetries: 10, delayBetweenTriesMs: 3000 },
+	transactionOpts: { maxCommitRetries: 5, delayBetweenTriesMs: 500 },
 	generateHighQualityLinkPreview: false,
 	enableAutoSessionRecreation: true,
 	enableRecentMessageCache: true,
