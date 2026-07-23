@@ -858,6 +858,7 @@ const isNodeRuntime = (): boolean => {
 type MediaUploadResult = {
 	url?: string
 	direct_path?: string
+	handle?: string
 	meta_hmac?: string
 	ts?: number
 	fbid?: number
@@ -1011,8 +1012,7 @@ export const getWAUploadToServer = (
 		// send a query JSON to obtain the url & auth token to upload our media
 		let uploadInfo = await refreshMediaConn(false)
 
-		let urls: { mediaUrl: string; directPath: string; meta_hmac?: string; ts?: number; fbid?: number } | undefined
-		const hosts = [...customUploadHosts, ...uploadInfo.hosts]
+		let urls: { mediaUrl: string; directPath: string; handle?: string; meta_hmac?: string; ts?: number; fbid?: number } | undefined
 
 		fileEncSha256B64 = encodeBase64EncodedStringForUpload(fileEncSha256B64)
 
@@ -1026,47 +1026,61 @@ export const getWAUploadToServer = (
 		const headers = {
 			...customHeaders,
 			'Content-Type': 'application/octet-stream',
-			Origin: DEFAULT_ORIGIN
+			Origin: DEFAULT_ORIGIN,
+			'User-Agent':
+				'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+			Accept: '*/*'
 		}
 
-		for (const { hostname } of hosts) {
-			logger.debug(`uploading to "${hostname}"`)
+		const maxRetries = 2
+		for (let attempt = 0; attempt < maxRetries && !urls; attempt++) {
+			if (attempt > 0) {
+				logger.info(`retrying upload (attempt ${attempt + 1}/${maxRetries})...`)
+				uploadInfo = await refreshMediaConn(true)
+			}
 
-			const auth = encodeURIComponent(uploadInfo.auth)
-			const url = `https://${hostname}${MEDIA_PATH_MAP[mediaType]}/${fileEncSha256B64}?auth=${auth}&token=${fileEncSha256B64}`
+			const hosts = [...customUploadHosts, ...uploadInfo.hosts]
 
-			let result: MediaUploadResult | undefined
-			try {
-				result = await uploadMedia(
-					{
-						url,
-						filePath,
-						headers,
-						timeoutMs,
-						agent: fetchAgent
-					},
-					logger
-				)
+			for (const { hostname } of hosts) {
+				logger.debug(`uploading to "${hostname}"`)
 
-				if (result?.url || result?.direct_path) {
-					urls = {
-						mediaUrl: result.url!,
-						directPath: result.direct_path!,
-						meta_hmac: result.meta_hmac,
-						fbid: result.fbid,
-						ts: result.ts
+				const auth = encodeURIComponent(uploadInfo.auth)
+				const url = `https://${hostname}${MEDIA_PATH_MAP[mediaType]}/${fileEncSha256B64}?auth=${auth}&token=${fileEncSha256B64}`
+
+				let result: MediaUploadResult | undefined
+				try {
+					result = await uploadMedia(
+						{
+							url,
+							filePath,
+							headers,
+							timeoutMs: timeoutMs || 60_000,
+							agent: fetchAgent
+						},
+						logger
+					)
+
+					if (result?.url || result?.direct_path) {
+						urls = {
+							mediaUrl: result.url!,
+							directPath: result.direct_path!,
+							handle: result.handle,
+							meta_hmac: result.meta_hmac,
+							fbid: result.fbid,
+							ts: result.ts
+						}
+						logger.info(`upload successful to host: ${hostname}`)
+						break
+					} else {
+						throw new Error(`upload failed, reason: ${JSON.stringify(result)}`)
 					}
-					break
-				} else {
-					uploadInfo = await refreshMediaConn(true)
-					throw new Error(`upload failed, reason: ${JSON.stringify(result)}`)
+				} catch (error: any) {
+					const isLast = hostname === hosts[hosts.length - 1]?.hostname
+					logger.warn(
+						{ trace: error?.stack, uploadResult: result },
+						`Error in uploading to ${hostname} ${isLast ? '' : ', retrying...'}`
+					)
 				}
-			} catch (error: any) {
-				const isLast = hostname === hosts[uploadInfo.hosts.length - 1]?.hostname
-				logger.warn(
-					{ trace: error?.stack, uploadResult: result },
-					`Error in uploading to ${hostname} ${isLast ? '' : ', retrying...'}`
-				)
 			}
 		}
 
