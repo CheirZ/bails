@@ -624,7 +624,7 @@ const processMessage = async (
 		} else {
 			logger?.warn({ creationMsgKey }, 'event creation message not found, cannot decrypt response')
 		}
-	} /* else if (content?.pollUpdateMessage) {
+	} else if (content?.pollUpdateMessage) {
 		const creationMsgKey = content.pollUpdateMessage.pollCreationMessageKey!
 
 		const pollMsg = await getMessage(creationMsgKey)
@@ -675,7 +675,7 @@ const processMessage = async (
 		} else {
 			logger?.warn({ creationMsgKey }, 'poll creation message not found, cannot decrypt update')
 		}
-	} */ else if (message.messageStubType) {
+	} else if (message.messageStubType) {
 		const jid = message.key?.remoteJid!
 		//let actor = whatsappID (message.participant)
 		let participants: GroupParticipant[]
