@@ -855,7 +855,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 		switch (child?.tag) {
 			case 'create':
-				const metadata = extractGroupMetadata(child)
+				const metadata = extractGroupMetadata(child, signalRepository.lidMapping.phoneCache)
 
 				msg.messageStubType = WAMessageStubType.GROUP_CREATE
 				msg.messageStubParameters = [metadata.subject]
@@ -1676,6 +1676,22 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 				// message failed to decrypt
 				if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT && msg.category !== 'peer') {
+					setImmediate(() => {
+						try {
+							ev.emit('messages.decrypt-failed', {
+								key: msg.key,
+								remoteJid: msg.key?.remoteJid,
+								participant: msg.key?.participant,
+								messageId: msg.key?.id,
+								isPreKeyError: (msg?.messageStubParameters?.[0] || '').includes('PreKey'),
+								errorMessage: msg?.messageStubParameters?.[0] || '',
+								timestamp: msg.messageTimestamp
+							})
+						} catch (err) {
+							logger.debug({ err }, 'messages.decrypt-failed listener threw')
+						}
+					})
+
 					if (msg?.messageStubParameters?.[0] === MISSING_KEYS_ERROR_TEXT) {
 						acked = true
 						return sendMessageAck(node, NACK_REASONS.ParsingError)
