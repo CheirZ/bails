@@ -25,5 +25,4 @@ export * from './message-composer'
 export * from './messages-newsletter'
 export * from './shortcake-crypto'
 export * from './shortcake'
-export * from './bad-mac-handler'
-export * from './connection-watchdog'
+
