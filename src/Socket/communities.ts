@@ -9,6 +9,7 @@ import {
 } from '../Types'
 import { generateMessageID, generateMessageIDV2, unixTimestampSeconds } from '../Utils'
 import logger from '../Utils/logger'
+import type { LIDMappingStore } from '../Signal/lid-mapping'
 import {
 	type BinaryNode,
 	getBinaryNodeChild,
@@ -21,9 +22,41 @@ import {
 } from '../WABinary'
 import { makeBusinessSocket } from './business'
 
+const resolveParticipantsLID = async (metadataList: GroupMetadata[], lidMapping: LIDMappingStore) => {
+	const unresolvedLids = new Set<string>()
+	for (const meta of metadataList) {
+		for (const p of meta.participants) {
+			if (!p.phoneNumber && isLidUser(p.id)) {
+				unresolvedLids.add(p.id)
+			}
+		}
+	}
+
+	if (unresolvedLids.size === 0) {
+		return
+	}
+
+	const resolved = await lidMapping.getPNsForLIDs([...unresolvedLids])
+	if (!resolved?.length) {
+		return
+	}
+
+	const lidToPn = new Map(resolved.map(({ lid, pn }) => [lid, pn]))
+	for (const meta of metadataList) {
+		meta.participants = meta.participants.map(p => {
+			const pn = lidToPn.get(p.id)
+			if (!pn) {
+				return p
+			}
+
+			return { ...p, id: pn, phoneNumber: pn, lid: p.id }
+		})
+	}
+}
+
 export const makeCommunitiesSocket = (config: SocketConfig) => {
 	const sock = makeBusinessSocket(config)
-	const { authState, ev, query, upsertMessage } = sock
+	const { authState, ev, query, upsertMessage, signalRepository } = sock
 
 	const communityQuery = async (jid: string, type: 'get' | 'set', content: BinaryNode[]) =>
 		query({
@@ -38,7 +71,9 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 
 	const communityMetadata = async (jid: string) => {
 		const result = await communityQuery(jid, 'get', [{ tag: 'query', attrs: { request: 'interactive' } }])
-		return extractCommunityMetadata(result)
+		const meta = extractCommunityMetadata(result)
+		await resolveParticipantsLID([meta], signalRepository.lidMapping)
+		return meta
 	}
 
 	const communityFetchAllParticipating = async () => {
@@ -73,6 +108,8 @@ export const makeCommunitiesSocket = (config: SocketConfig) => {
 				data[meta.id] = meta
 			}
 		}
+
+		await resolveParticipantsLID(Object.values(data), signalRepository.lidMapping)
 
 		sock.ev.emit('groups.update', Object.values(data))
 

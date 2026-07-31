@@ -12,7 +12,8 @@ import {
 	isLidUser,
 	isPnUser,
 	jidEncode,
-	jidNormalizedUser
+	jidNormalizedUser,
+	type LidPhoneCache
 } from '../WABinary'
 import { makeChatsSocket } from './chats'
 
@@ -102,7 +103,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 
 		try {
 			const result = await groupQuery(jid, 'get', [{ tag: 'query', attrs: { request: 'interactive' } }])
-			const meta = extractGroupMetadata(result)
+			const meta = extractGroupMetadata(result, signalRepository.lidMapping.phoneCache)
 			setCachedGroupMetadata(jid, meta)
 			ev.emit('groups.update', [meta])
 		} catch {}
@@ -153,10 +154,22 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 		}
 
 		const result = await groupQuery(jid, 'get', [{ tag: 'query', attrs: { request: 'interactive' } }])
-		const meta = extractGroupMetadata(result)
+		const meta = extractGroupMetadata(result, signalRepository.lidMapping.phoneCache)
 		await resolveParticipantsLID([meta], signalRepository.lidMapping)
 		setCachedGroupMetadata(jid, meta)
 		return meta
+	}
+
+	const resolveLidPhone = async (groupJid: string, lid: string): Promise<string | undefined> => {
+		const cached = signalRepository.lidMapping.phoneCache.getPhoneForLid(lid)
+		if (cached) return cached
+
+		try {
+			await groupMetadata(groupJid)
+			return signalRepository.lidMapping.phoneCache.getPhoneForLid(lid)
+		} catch {
+			return undefined
+		}
 	}
 
 	const groupFetchAllParticipating = async () => {
@@ -183,11 +196,14 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 		if (groupsChild) {
 			const groups = getBinaryNodeChildren(groupsChild, 'group')
 			for (const groupNode of groups) {
-				const meta = extractGroupMetadata({
-					tag: 'result',
-					attrs: {},
-					content: [groupNode]
-				})
+				const meta = extractGroupMetadata(
+					{
+						tag: 'result',
+						attrs: {},
+						content: [groupNode]
+					},
+					signalRepository.lidMapping.phoneCache
+				)
 				data[meta.id] = meta
 			}
 		}
@@ -216,6 +232,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 	return {
 		...sock,
 		groupMetadata,
+		resolveLidPhone,
 		groupCreate: async (subject: string, participants: string[]) => {
 			const key = generateMessageIDV2()
 			const result = await groupQuery('@g.us', 'set', [
@@ -231,7 +248,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 					}))
 				}
 			])
-			return extractGroupMetadata(result)
+			return extractGroupMetadata(result, signalRepository.lidMapping.phoneCache)
 		},
 		groupLeave: async (id: string) => {
 			await groupQuery('@g.us', 'set', [
@@ -407,7 +424,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 		),
 		groupGetInviteInfo: async (code: string) => {
 			const results = await groupQuery('@g.us', 'get', [{ tag: 'invite', attrs: { code } }])
-			return extractGroupMetadata(results)
+			return extractGroupMetadata(results, signalRepository.lidMapping.phoneCache)
 		},
 		groupToggleEphemeral: async (jid: string, ephemeralExpiration: number) => {
 			const content: BinaryNode = ephemeralExpiration
@@ -475,7 +492,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 	}
 }
 
-export const extractGroupMetadata = (result: BinaryNode) => {
+export const extractGroupMetadata = (result: BinaryNode, phoneCache?: LidPhoneCache) => {
 	const group = getBinaryNodeChild(result, 'group')
 	if (!group) {
 		// Mirror WAWeb: surface server/client errors with their code+text instead of crashing.
@@ -543,6 +560,13 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 		participants: getBinaryNodeChildren(group, 'participant').map(({ attrs }) => {
 			const isLid = isLidUser(attrs.jid)
 			const hasPn = isPnUser(attrs.phone_number)
+
+			if (isLid && hasPn) {
+				phoneCache?.set(attrs.jid, attrs.phone_number)
+			} else if (isPnUser(attrs.jid) && isLidUser(attrs.lid)) {
+				phoneCache?.set(attrs.lid, attrs.jid)
+			}
+
 			return {
 				id: isLid && hasPn ? attrs.phone_number! : attrs.jid!,
 				phoneNumber: isLid && hasPn ? attrs.phone_number : undefined,
